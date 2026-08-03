@@ -21,6 +21,7 @@ function formatOcrDate(iso: string | null): string {
   if (!iso) return "인식 안 됨";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "인식 안 됨";
+  // 보는 사람 기기 타임존과 무관하게 항상 한국 시각으로 표시한다.
   return d.toLocaleString("ko-KR", {
     timeZone: "Asia/Seoul",
     month: "2-digit",
@@ -208,18 +209,19 @@ export default function ReceiptManager({
   const cameraInputRef = useRef<HTMLInputElement>(null);
 
   const flatRate = isFlatRate(transportMode);
+  // 조식은 한 영수증 = 한 장으로 제한한다 (다른 항목처럼 여러 장을 페이지/왕복권으로 합쳐 볼
+  // 이유가 없고, 여러 장 올리면 오히려 오인식 위험만 커진다).
+  const isBreakfast = category === "BREAKFAST";
 
   function addFiles(files: FileList | null) {
     if (!files || files.length === 0) return;
     setError(null);
-    setQueue((prev) => [
-      ...prev,
-      ...Array.from(files).map((file) => ({
-        id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
-        file,
-        url: URL.createObjectURL(file),
-      })),
-    ]);
+    const incoming = Array.from(files).map((file) => ({
+      id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      file,
+      url: URL.createObjectURL(file),
+    }));
+    setQueue((prev) => (isBreakfast ? incoming.slice(0, 1) : [...prev, ...incoming]));
   }
 
   function onGalleryPicked(e: React.ChangeEvent<HTMLInputElement>) {
@@ -313,6 +315,8 @@ export default function ReceiptManager({
       ? "정액정산 대상으로 금액 확인 없이 사진만 첨부하면 바로 인정됩니다."
       : category === "TRANSPORT"
       ? "왕복 등 결제가 여러 건이면 사진을 각각 추가해 주세요 - 사진별로 인식한 금액을 자동으로 합산합니다."
+      : isBreakfast
+      ? null
       : "여러 장이면 같은 영수증의 다음 페이지로 보고 합쳐서 인식합니다.";
 
   return (
@@ -321,7 +325,7 @@ export default function ReceiptManager({
         ref={galleryInputRef}
         type="file"
         accept="image/*,application/pdf"
-        multiple
+        multiple={!isBreakfast}
         className="hidden"
         onChange={onGalleryPicked}
       />
@@ -377,24 +381,28 @@ export default function ReceiptManager({
                 </button>
               </div>
             ))}
-            <button
-              type="button"
-              onClick={() => galleryInputRef.current?.click()}
-              aria-label="사진 추가(갤러리)"
-              className="flex size-20 items-center justify-center rounded-xl border border-dashed border-black/15 text-neutral-400 dark:border-white/20"
-            >
-              <IconPlus className="size-5" />
-            </button>
-            <button
-              type="button"
-              onClick={() => cameraInputRef.current?.click()}
-              aria-label="사진 추가(카메라)"
-              className="flex size-20 items-center justify-center rounded-xl border border-dashed border-black/15 text-neutral-400 dark:border-white/20"
-            >
-              <IconCamera className="size-5" />
-            </button>
+            {!(isBreakfast && queue.length >= 1) && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => galleryInputRef.current?.click()}
+                  aria-label="사진 추가(갤러리)"
+                  className="flex size-20 items-center justify-center rounded-xl border border-dashed border-black/15 text-neutral-400 dark:border-white/20"
+                >
+                  <IconPlus className="size-5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => cameraInputRef.current?.click()}
+                  aria-label="사진 추가(카메라)"
+                  className="flex size-20 items-center justify-center rounded-xl border border-dashed border-black/15 text-neutral-400 dark:border-white/20"
+                >
+                  <IconCamera className="size-5" />
+                </button>
+              </>
+            )}
           </div>
-          <p className="mt-3 text-[12px] text-neutral-400">{hint}</p>
+          {hint && <p className="mt-3 text-[12px] text-neutral-400">{hint}</p>}
           {error && <p className="mt-2 text-[13px] text-red-500">{error}</p>}
           <div className="mt-4 flex gap-2">
             <button
