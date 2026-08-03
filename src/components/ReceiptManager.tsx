@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { upload } from "@vercel/blob/client";
 import { IconCamera, IconPhoto, IconTrash, IconPdf, IconPlus } from "./icons";
 import type { ReceiptItem } from "@/lib/receipt";
 import { VERDICT_LABEL } from "@/lib/format";
@@ -244,12 +245,24 @@ export default function ReceiptManager({
     setUploading(true);
     setError(null);
     try {
-      const form = new FormData();
-      form.append("tripId", tripId);
-      form.append("category", category);
-      if (transportMode) form.append("transportMode", transportMode);
-      for (const q of queue) form.append("files", q.file);
-      const res = await fetch("/api/receipts", { method: "POST", body: form });
+      // 사진을 우리 서버가 아니라 브라우저에서 Vercel Blob으로 직접 올린다 - Vercel 서버리스
+      // 함수는 요청 본문이 4.5MB로 제한돼 있어, 휴대폰 카메라 사진(보통 5MB+)을 서버를 거쳐
+      // 올리면 실패한다.
+      const blobs: { url: string; contentType: string }[] = [];
+      for (const q of queue) {
+        const blob = await upload(`uploads/${tripId}/${category.toLowerCase()}/${q.file.name}`, q.file, {
+          access: "public",
+          handleUploadUrl: "/api/receipts/upload",
+          contentType: q.file.type,
+        });
+        blobs.push({ url: blob.url, contentType: q.file.type });
+      }
+
+      const res = await fetch("/api/receipts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tripId, category, transportMode, blobs }),
+      });
       const data = await res.json();
       if (!res.ok) {
         setError(data.error ?? "업로드에 실패했습니다.");

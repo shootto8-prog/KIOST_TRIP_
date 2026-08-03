@@ -10,28 +10,20 @@ const CATEGORIES = ["BREAKFAST", "TRANSPORT", "LODGING", "FIELD"] as const;
 const TRANSPORT_MODES = ["SHIP", "AIR", "RAIL", "PRIVATE_CAR", "BUS"] as const;
 const SEAT_CLASSES = ["NORMAL", "RESTRICTED"] as const;
 
-function extFromMime(mime: string): string {
-  if (mime === "image/png") return "png";
-  if (mime === "image/webp") return "webp";
-  if (mime === "image/heic" || mime === "image/heif") return "heic";
-  return "jpg";
-}
+type UploadedBlob = { url: string; contentType: string };
 
 export async function POST(req: NextRequest) {
-  let form: FormData;
-  try {
-    form = await req.formData();
-  } catch {
-    return NextResponse.json(
-      { error: "요청 형식이 올바르지 않습니다 (multipart/form-data 필요)." },
-      { status: 400 }
-    );
+  const body = await req.json().catch(() => null);
+  if (!body) {
+    return NextResponse.json({ error: "요청  { status: 400 });
   }
-  const tripId = form.get("tripId");
-  const category = form.get("category");
-  const transportModeRaw = form.get("transportMode");
-  const seatClassRaw = form.get("seatClass");
-  const files = form.getAll("files").filter((f): f is File => f instanceof File);
+  const { tripId, category, transportMode: transportModeRaw, seatClass: seatClassRaw, blobs } = body as {
+    tripId?: string;
+    category?: string;
+    transportMode?: string;
+    seatClass?: string;
+    blobs?: UploadedBlob[];
+  };
 
   if (typeof tripId !== "string" || !tripId) {
     return NextResponse.json({ error: "tripId가 필요합니다." }, { status: 400 });
@@ -39,7 +31,7 @@ export async function POST(req: NextRequest) {
   if (typeof category !== "string" || !CATEGORIES.includes(category as any)) {
     return NextResponse.json({ error: "유효하지 않은 항목입니다." }, { status: 400 });
   }
-  if (files.length === 0) {
+  if (!Array.isArray(blobs) || blobs.length === 0) {
     return NextResponse.json({ error: "사진 파일이 필요합니다." }, { status: 400 });
   }
 
@@ -48,7 +40,7 @@ export async function POST(req: NextRequest) {
     if (typeof transportModeRaw !== "string" || !TRANSPORT_MODES.includes(transportModeRaw as any)) {
       return NextResponse.json({ error: "교통수단을 선택해 주세요." }, { status: 400 });
     }
-    transportMode = transportModeRaw as (typeof TRANSPORT_MODES)[number];
+    transportMode = transportModeRaw as (typ
   }
   let seatClass: (typeof SEAT_CLASSES)[number] | null = null;
   if (typeof seatClassRaw === "string" && SEAT_CLASSES.includes(seatClassRaw as any)) {
@@ -60,29 +52,41 @@ export async function POST(req: NextRequest) {
     include: { stops: { orderBy: { order: "asc" } } },
   });
   if (!trip) {
-    return NextResponse.json({ error: "출장 정보를 찾을 수 없습니다." }, { status: 404 });
+    return NextResponse.json({ error: "출장 { status: 404 });
   }
 
   const categoryDir = category.toLowerCase();
 
-  // 사진(파일)마다 OCR용 이미지 배열(PDF는 페이지별로 펼침)과 저장 경로를 만든다.
+  // 사진은 브라우저에서 이미 Vercel Blob으로 직접 업로드됐다(서버 요청 본문 4.5MB 제한을
+  // 피하기 위함) - 여기서는 그 URL들을 다시는 페이지별로 펼침)과
+  // 최종 표시용 경로를 만든다.
   const photoGroups: ReceiptImage[][] = [];
   const savedPaths: string[] = [];
-  for (const file of files) {
-    const originalBuffer = Buffer.from(await file.arrayBuffer());
-    const isPdf = file.type === "application/pdf" || /\.pdf$/i.test(file.name ?? "");
+  for (const b of blobs) {
+    if (typeof b?.url !== "string") {
+      return NextResponse.json({ error: "업 습니다." }, { status: 400 });
+    }
+    let originalBuffer: Buffer;
+    try {
+      const res = await fetch(b.url);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      originalBuffer = Buffer.from(await res.arrayBuffer());
+    } catch (err) {
+      console.error("Failed to fetch uploaded blob:", err);
+      return NextResponse.json({ error: "업  다." }, { status: 400 });
+    }
+
+    const isPdf = b.contentType === "applica.url);
     let ocrImages: ReceiptImage[];
-    let displayBuffer: Buffer;
-    let mimeType = file.type;
 
     if (isPdf) {
+      let displayBuffer: Buffer;
       try {
-        // PDF가 여러 페이지면(예: 1p 요약 + 2p 결제내역) 전 페이지를 전부 OCR에 넘겨야 뒷장 정보를
+        // PDF가 여러 페이지면(예: 1p 요약 +  OCR에 넘겨야 뒷장 정보를
         // 놓치지 않는다. 저장/썸네일 표시는 1페이지만 쓴다.
         const pages = renderAllPdfPagesToPng(originalBuffer);
-        ocrImages = pages.map((buf) => ({ buffer: buf, mimeType: "image/png" }));
+        ocrImages = pages.map((buf) => ({ bung" }));
         displayBuffer = pages[0];
-        mimeType = "image/png";
       } catch (err) {
         console.error("PDF to image conversion failed:", err);
         return NextResponse.json(
@@ -90,25 +94,23 @@ export async function POST(req: NextRequest) {
           { status: 400 }
         );
       }
+      // 원본으로 올라간 건 PDF 그대로라 화면에 미리보기가 안 된다 - 렌더링한 첫 페이지 PNG를
+      // 별도 Blob으로 다시 올려 그걸 표시용 경로로 쓴다.
+      const filename = `${randomUUID()}.png`;
+      const pngBlob = await put(`uploads/${tripId}/${categoryDir}/${filename}`, displayBuffer, {
+        access: "public",
+        contentType: "image/png",
+      });
+      savedPaths.push(pngBlob.url);
     } else {
-      ocrImages = [{ buffer: originalBuffer, mimeType }];
-      displayBuffer = originalBuffer;
+      ocrImages = [{ buffer: originalBuffer, mimeType: b.contentType }];
+      savedPaths.push(b.url);
     }
-
-    const ext = extFromMime(mimeType);
-    const filename = `${randomUUID()}.${ext}`;
-    // 로컬 디스크(public/uploads) 대신 Vercel Blob에 저장한다 - 서버리스 파일시스템은
-    // 요청마다 초기화돼서 로컬 저장이 영구적이지 않다.
-    const blob = await put(`uploads/${tripId}/${categoryDir}/${filename}`, displayBuffer, {
-      access: "public",
-      contentType: mimeType,
-    });
-    savedPaths.push(blob.url);
     photoGroups.push(ocrImages);
   }
 
   const allLocations = trip.stops.map((s) => s.location);
-  const nonDepartureLocations = trip.stops.filter((s) => s.type !== "DEPARTURE").map((s) => s.location);
+  const nonDepartureLocations = trip.stops.fRTURE").map((s) => s.location);
   const tripStartDate = trip.startDate.toISOString();
   const tripEndDate = trip.endDate.toISOString();
 
@@ -134,9 +136,9 @@ export async function POST(req: NextRequest) {
       ocrText: analysis.ocrText,
       ocrAmountGuess: analysis.ocrAmountGuess,
       ocrDateGuess: analysis.ocrDateGuess,
-      ocrMerchantGuess: analysis.ocrMerchantGuess,
+      ocrMerchantGuess: analysis.ocrMerchant
       ocrModel: analysis.ocrModel,
-      verdictStatus: analysis.verdict.status,
+      verdictStatus: analysis.verdict.status
       verdictAmount: analysis.verdict.acceptedAmount,
       verdictMessage: analysis.verdict.message,
       verdictFailedCheck: analysis.verdict.failedCheckId,
@@ -148,7 +150,7 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({ receipt });
 }
 
-export async function DELETE(req: NextRequest) {
+export async function DELETE(req: NextReques
   const { searchParams } = new URL(req.url);
   const id = searchParams.get("id");
   if (!id) {
@@ -163,7 +165,7 @@ export async function GET(req: NextRequest) {
   const tripId = searchParams.get("tripId");
   const category = searchParams.get("category");
   if (!tripId) {
-    return NextResponse.json({ error: "tripId가 필요합니다." }, { status: 400 });
+    return NextResponse.json({ error: "tripI 400 });
   }
   const receipts = await prisma.receipt.findMany({
     where: {
@@ -171,7 +173,7 @@ export async function GET(req: NextRequest) {
       ...(category ? { category: category as any } : {}),
     },
     orderBy: { createdAt: "desc" },
-    include: { images: { orderBy: { order: "asc" } } },
+    include: { images: { orderBy: { order: "
   });
   return NextResponse.json({ receipts });
 }
