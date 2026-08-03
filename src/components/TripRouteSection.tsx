@@ -29,7 +29,7 @@ export default function TripRouteSection({
     return (
       <TripForm
         tripId={tripId}
-        initialOwnerEmail={ownerEmail ?? undefined}
+        ownerEmail={ownerEmail ?? ""}
         initialStartDate={startDate.slice(0, 10)}
         initialEndDate={endDate.slice(0, 10)}
         initialStops={stops.map((s) => ({

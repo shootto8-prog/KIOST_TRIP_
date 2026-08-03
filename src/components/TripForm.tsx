@@ -40,7 +40,7 @@ function toStops(initial?: InitialStop[]): Stop[] {
  */
 export default function TripForm({
   tripId,
-  initialOwnerEmail,
+  ownerEmail,
   initialStartDate,
   initialEndDate,
   initialStops,
@@ -48,7 +48,8 @@ export default function TripForm({
   onCancel,
 }: {
   tripId?: string;
-  initialOwnerEmail?: string;
+  /** 홈 화면의 본인 확인 이메일(identity 쿠키) - 새 출장 등록 시 자동으로 연결된다. */
+  ownerEmail: string;
   initialStartDate?: string; // "YYYY-MM-DD"
   initialEndDate?: string;
   initialStops?: InitialStop[];
@@ -57,7 +58,6 @@ export default function TripForm({
 }) {
   const router = useRouter();
   const isEdit = Boolean(tripId);
-  const [ownerEmail, setOwnerEmail] = useState(initialOwnerEmail ?? "");
   const [startDate, setStartDate] = useState(initialStartDate ?? "");
   const [endDate, setEndDate] = useState(initialEndDate ?? "");
   const [stops, setStops] = useState<Stop[]>(() => toStops(initialStops));
@@ -89,10 +89,6 @@ export default function TripForm({
     e.preventDefault();
     setError(null);
 
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(ownerEmail.trim())) {
-      setError("정산 결과를 받을 이메일 주소를 올바르게 입력해 주세요.");
-      return;
-    }
     if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) || !/^\d{4}-\d{2}-\d{2}$/.test(endDate)) {
       setError("출장 시작일과 종료일을 연도(4자리)까지 포함해 입력해 주세요.");
       return;
@@ -114,7 +110,7 @@ export default function TripForm({
         method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          ownerEmail: ownerEmail.trim(),
+          ownerEmail,
           startDate,
           endDate,
           stops: stops.map(({ type, location }) => ({ type, location })),
@@ -164,20 +160,6 @@ export default function TripForm({
           출장이 연장·단축되거나 경유지가 바뀐 경우 여기서 수정하세요.
         </p>
       )}
-
-      <div className="mt-4 rounded-2xl border border-black/5 bg-neutral-50 p-3 dark:border-white/10 dark:bg-white/5">
-        <p className="text-[13px] font-medium text-neutral-500">
-          이메일 <span className="font-normal text-neutral-400">(정산 결과를 받으실 개인 이메일)</span>
-        </p>
-        <input
-          type="email"
-          required
-          placeholder="you@kiost.ac.kr"
-          value={ownerEmail}
-          onChange={(e) => setOwnerEmail(e.target.value)}
-          className="mt-2 w-full rounded-xl bg-white px-3 py-2.5 text-[15px] text-neutral-900 outline-none placeholder:text-neutral-400 dark:bg-white/10 dark:text-neutral-100"
-        />
-      </div>
 
       <div className="mt-4 rounded-2xl border border-black/5 bg-neutral-50 p-3 dark:border-white/10 dark:bg-white/5">
         <p className="text-[13px] font-medium text-neutral-500">

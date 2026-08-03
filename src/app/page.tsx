@@ -3,6 +3,9 @@ import { prisma } from "@/lib/prisma";
 import { formatDate } from "@/lib/format";
 import TripForm from "@/components/TripForm";
 import TripDeleteButton from "@/components/TripDeleteButton";
+import IdentityPrompt from "@/components/IdentityPrompt";
+import IdentitySwitcher from "@/components/IdentitySwitcher";
+import { getOwnerEmail } from "@/lib/identity";
 import { IconBreakfast, IconTransport, IconLodging, IconPhoto } from "@/components/icons";
 
 // 출장 목록은 매 요청마다 최신 상태를 보여줘야 한다 - 빌드 시점에 정적으로 고정되면
@@ -10,14 +13,32 @@ import { IconBreakfast, IconTransport, IconLodging, IconPhoto } from "@/componen
 export const dynamic = "force-dynamic";
 
 export default async function HomePage() {
+  const ownerEmail = await getOwnerEmail();
+
+  if (!ownerEmail) {
+    return (
+      <main className="space-y-6">
+        <header>
+          <h1 className="text-2xl font-bold tracking-tight text-neutral-900 dark:text-neutral-100">
+            정총무1.0
+          </h1>
+          <p className="mt-1 text-[14px] text-neutral-500">
+            KIOST 국내여비 간편서비스 · 출장정보를 등록하고 조식·교통·숙박·현장사진을 관리하세요.
+          </p>
+        </header>
+        <IdentityPrompt />
+      </main>
+    );
+  }
+
   const [activeTrips, completedTrips] = await Promise.all([
     prisma.trip.findMany({
-      where: { status: "ACTIVE" },
+      where: { status: "ACTIVE", ownerEmail },
       orderBy: { createdAt: "desc" },
       include: { stops: { orderBy: { order: "asc" } } },
     }),
     prisma.trip.findMany({
-      where: { status: "COMPLETED" },
+      where: { status: "COMPLETED", ownerEmail },
       orderBy: { updatedAt: "desc" },
       include: { stops: { orderBy: { order: "asc" } } },
       take: 10,
@@ -34,6 +55,8 @@ export default async function HomePage() {
           KIOST 국내여비 간편서비스 · 출장정보를 등록하고 조식·교통·숙박·현장사진을 관리하세요.
         </p>
       </header>
+
+      <IdentitySwitcher email={ownerEmail} />
 
       {activeTrips.length > 0 && (
         <section>
@@ -100,7 +123,7 @@ export default async function HomePage() {
         </section>
       )}
 
-      <TripForm />
+      <TripForm ownerEmail={ownerEmail} />
 
       {completedTrips.length > 0 && (
         <section>
