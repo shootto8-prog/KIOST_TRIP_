@@ -2,7 +2,8 @@
   "name": "trip-expense-assistant",
   "version": "0.1.0",
   "private": true,
-  "scripts": {
+   "scripts": {
+    "postinstall": "prisma generate",
     "dev": "next dev -p 3001",
     "build": "next build",
     "start": "next start -p 3001",
