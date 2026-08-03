@@ -15,7 +15,7 @@ type UploadedBlob = { url: string; contentType: string };
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null);
   if (!body) {
-    return NextResponse.json({ error: "요청  { status: 400 });
+    return NextResponse.json({ error: "요청 형식이 올바르지 않습니다." }, { status: 400 });
   }
   const { tripId, category, transportMode: transportModeRaw, seatClass: seatClassRaw, blobs } = body as {
     tripId?: string;
@@ -40,7 +40,7 @@ export async function POST(req: NextRequest) {
     if (typeof transportModeRaw !== "string" || !TRANSPORT_MODES.includes(transportModeRaw as any)) {
       return NextResponse.json({ error: "교통수단을 선택해 주세요." }, { status: 400 });
     }
-    transportMode = transportModeRaw as (typ
+    transportMode = transportModeRaw as (typeof TRANSPORT_MODES)[number];
   }
   let seatClass: (typeof SEAT_CLASSES)[number] | null = null;
   if (typeof seatClassRaw === "string" && SEAT_CLASSES.includes(seatClassRaw as any)) {
@@ -52,19 +52,19 @@ export async function POST(req: NextRequest) {
     include: { stops: { orderBy: { order: "asc" } } },
   });
   if (!trip) {
-    return NextResponse.json({ error: "출장 { status: 404 });
+    return NextResponse.json({ error: "출장 정보를 찾을 수 없습니다." }, { status: 404 });
   }
 
   const categoryDir = category.toLowerCase();
 
   // 사진은 브라우저에서 이미 Vercel Blob으로 직접 업로드됐다(서버 요청 본문 4.5MB 제한을
-  // 피하기 위함) - 여기서는 그 URL들을 다시는 페이지별로 펼침)과
+  // 피하기 위함) - 여기서는 그 URL들을 다시 읽어와 OCR용 이미지 배열(PDF는 페이지별로 펼침)과
   // 최종 표시용 경로를 만든다.
   const photoGroups: ReceiptImage[][] = [];
   const savedPaths: string[] = [];
   for (const b of blobs) {
     if (typeof b?.url !== "string") {
-      return NextResponse.json({ error: "업 습니다." }, { status: 400 });
+      return NextResponse.json({ error: "업로드된 사진 정보가 올바르지 않습니다." }, { status: 400 });
     }
     let originalBuffer: Buffer;
     try {
@@ -73,19 +73,19 @@ export async function POST(req: NextRequest) {
       originalBuffer = Buffer.from(await res.arrayBuffer());
     } catch (err) {
       console.error("Failed to fetch uploaded blob:", err);
-      return NextResponse.json({ error: "업  다." }, { status: 400 });
+      return NextResponse.json({ error: "업로드된 사진을 불러오지 못했습니다." }, { status: 400 });
     }
 
-    const isPdf = b.contentType === "applica.url);
+    const isPdf = b.contentType === "application/pdf" || /\.pdf$/i.test(b.url);
     let ocrImages: ReceiptImage[];
 
     if (isPdf) {
       let displayBuffer: Buffer;
       try {
-        // PDF가 여러 페이지면(예: 1p 요약 +  OCR에 넘겨야 뒷장 정보를
+        // PDF가 여러 페이지면(예: 1p 요약 + 2p 결제내역) 전 페이지를 전부 OCR에 넘겨야 뒷장 정보를
         // 놓치지 않는다. 저장/썸네일 표시는 1페이지만 쓴다.
         const pages = renderAllPdfPagesToPng(originalBuffer);
-        ocrImages = pages.map((buf) => ({ bung" }));
+        ocrImages = pages.map((buf) => ({ buffer: buf, mimeType: "image/png" }));
         displayBuffer = pages[0];
       } catch (err) {
         console.error("PDF to image conversion failed:", err);
@@ -110,7 +110,7 @@ export async function POST(req: NextRequest) {
   }
 
   const allLocations = trip.stops.map((s) => s.location);
-  const nonDepartureLocations = trip.stops.fRTURE").map((s) => s.location);
+  const nonDepartureLocations = trip.stops.filter((s) => s.type !== "DEPARTURE").map((s) => s.location);
   const tripStartDate = trip.startDate.toISOString();
   const tripEndDate = trip.endDate.toISOString();
 
@@ -136,9 +136,9 @@ export async function POST(req: NextRequest) {
       ocrText: analysis.ocrText,
       ocrAmountGuess: analysis.ocrAmountGuess,
       ocrDateGuess: analysis.ocrDateGuess,
-      ocrMerchantGuess: analysis.ocrMerchant
+      ocrMerchantGuess: analysis.ocrMerchantGuess,
       ocrModel: analysis.ocrModel,
-      verdictStatus: analysis.verdict.status
+      verdictStatus: analysis.verdict.status,
       verdictAmount: analysis.verdict.acceptedAmount,
       verdictMessage: analysis.verdict.message,
       verdictFailedCheck: analysis.verdict.failedCheckId,
@@ -150,7 +150,7 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({ receipt });
 }
 
-export async function DELETE(req: NextReques
+export async function DELETE(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const id = searchParams.get("id");
   if (!id) {
@@ -165,7 +165,7 @@ export async function GET(req: NextRequest) {
   const tripId = searchParams.get("tripId");
   const category = searchParams.get("category");
   if (!tripId) {
-    return NextResponse.json({ error: "tripI 400 });
+    return NextResponse.json({ error: "tripId가 필요합니다." }, { status: 400 });
   }
   const receipts = await prisma.receipt.findMany({
     where: {
@@ -173,7 +173,7 @@ export async function GET(req: NextRequest) {
       ...(category ? { category: category as any } : {}),
     },
     orderBy: { createdAt: "desc" },
-    include: { images: { orderBy: { order: "
+    include: { images: { orderBy: { order: "asc" } } },
   });
   return NextResponse.json({ receipts });
 }
