@@ -1,0 +1,237 @@
+import { PDFDocument, PDFFont, PDFPage, rgb } from "pdf-lib";
+import fontkit from "@pdf-lib/fontkit";
+import { readFile } from "fs/promises";
+import path from "path";
+import { prisma } from "./prisma";
+import { CATEGORY_LABEL, STOP_TYPE_LABEL, VERDICT_LABEL, formatDate, formatDateTime } from "./format";
+import { getTripWithSummary } from "./tripSummary";
+
+const PAGE_WIDTH = 595.28; // A4 (pt)
+const PAGE_HEIGHT = 841.89;
+const MARGIN = 42;
+const CONTENT_WIDTH = PAGE_WIDTH - MARGIN * 2;
+
+// 로컬 프로토타입은 Windows에서만 실행되는 것을 전제로, OS에 이미 설치된 한글 폰트를 그대로 사용한다.
+// (다른 OS/서버로 배포할 경우 오픈소스 한글 폰트를 프로젝트 자산으로 번들링해야 함 - PRD 열린 이슈 참고)
+const FONT_REGULAR_PATH = "C:\\Windows\\Fonts\\malgun.ttf";
+const FONT_BOLD_PATH = "C:\\Windows\\Fonts\\malgunbd.ttf";
+
+const COLOR_TEXT = rgb(0.11, 0.11, 0.12);
+const COLOR_MUTED = rgb(0.45, 0.45, 0.47);
+const COLOR_ACCENT = rgb(0.06, 0.35, 0.85);
+const COLOR_REJECTED = rgb(0.75, 0.15, 0.15);
+const COLOR_PARTIAL = rgb(0.7, 0.45, 0.05);
+
+class PdfWriter {
+  doc: PDFDocument;
+  page!: PDFPage;
+  y = 0;
+  font: PDFFont;
+  bold: PDFFont;
+
+  constructor(doc: PDFDocument, font: PDFFont, bold: PDFFont) {
+    this.doc = doc;
+    this.font = font;
+    this.bold = bold;
+    this.newPage();
+  }
+
+  newPage() {
+    this.page = this.doc.addPage([PAGE_WIDTH, PAGE_HEIGHT]);
+    this.y = PAGE_HEIGHT - MARGIN;
+  }
+
+  ensureSpace(height: number) {
+    if (this.y - height < MARGIN) this.newPage();
+  }
+
+  text(
+    str: string,
+    opts: { size?: number; bold?: boolean; color?: ReturnType<typeof rgb>; x?: number; gap?: number } = {}
+  ) {
+    const { size = 11, bold = false, color = COLOR_TEXT, x = MARGIN, gap = size + 6 } = opts;
+    this.ensureSpace(gap);
+    this.page.drawText(str, { x, y: this.y, size, font: bold ? this.bold : this.font, color });
+    this.y -= gap;
+  }
+
+  spacer(h: number) {
+    this.y -= h;
+  }
+
+  hr() {
+    this.ensureSpace(14);
+    this.page.drawLine({
+      start: { x: MARGIN, y: this.y },
+      end: { x: MARGIN + CONTENT_WIDTH, y: this.y },
+      thickness: 0.5,
+      color: rgb(0.85, 0.85, 0.86),
+    });
+    this.y -= 14;
+  }
+
+  async image(publicRelPath: string) {
+    const abs = path.join(process.cwd(), "public", publicRelPath);
+    let bytes: Buffer;
+    try {
+      bytes = await readFile(abs);
+    } catch {
+      this.text("(첨부 이미지 파일을 찾을 수 없습니다)", { size: 10, color: COLOR_MUTED, gap: 16 });
+      return;
+    }
+
+    const ext = path.extname(publicRelPath).toLowerCase();
+    let embedded;
+    try {
+      if (ext === ".png") {
+        embedded = await this.doc.embedPng(bytes);
+      } else if (ext === ".jpg" || ext === ".jpeg") {
+        embedded = await this.doc.embedJpg(bytes);
+      } else {
+        this.text(`(미리보기 미지원 이미지 형식: ${ext} - 원본 파일에서 확인해주세요)`, {
+          size: 10,
+          color: COLOR_MUTED,
+          gap: 16,
+        });
+        return;
+      }
+    } catch {
+      this.text("(이미지 렌더링에 실패했습니다)", { size: 10, color: COLOR_MUTED, gap: 16 });
+      return;
+    }
+
+    const maxW = 220;
+    const maxH = 220;
+    const scale = Math.min(maxW / embedded.width, maxH / embedded.height, 1);
+    const w = embedded.width * scale;
+    const h = embedded.height * scale;
+    this.ensureSpace(h + 12);
+    this.page.drawImage(embedded, { x: MARGIN, y: this.y - h, width: w, height: h });
+    this.y -= h + 12;
+  }
+}
+
+async function embedKoreanFonts(doc: PDFDocument): Promise<{ regular: PDFFont; bold: PDFFont }> {
+  doc.registerFontkit(fontkit);
+  let regularBytes: Buffer;
+  let boldBytes: Buffer;
+  try {
+    [regularBytes, boldBytes] = await Promise.all([readFile(FONT_REGULAR_PATH), readFile(FONT_BOLD_PATH)]);
+  } catch {
+    throw new Error(
+      "한글 폰트 파일을 찾을 수 없습니다 (C:\\Windows\\Fonts\\malgun.ttf). PDF 생성은 현재 Windows 환경 전용입니다."
+    );
+  }
+  const regular = await doc.embedFont(regularBytes, { subset: true });
+  const bold = await doc.embedFont(boldBytes, { subset: true });
+  return { regular, bold };
+}
+
+const SETTLED_CATEGORIES = ["BREAKFAST", "TRANSPORT", "LODGING"] as const;
+const FOOTER_DISCLAIMER =
+  "본 자료는 최종확정이 아니며, 담당자의 검토과정에서 조정, 반려될 수 있습니다.";
+
+export async function generateTripPdf(tripId: string): Promise<Uint8Array> {
+  const data = await getTripWithSummary(tripId);
+  if (!data) throw new Error("출장 정보를 찾을 수 없습니다.");
+  const { trip, byCategory, sumByCategory, totalAmount } = data;
+
+  const doc = await PDFDocument.create();
+  doc.setTitle("국내여비 실비정산 내역");
+  const { regular, bold } = await embedKoreanFonts(doc);
+  const w = new PdfWriter(doc, regular, bold);
+
+  w.text("국내여비 실비정산 내역", { size: 20, bold: true, gap: 30 });
+  w.text(`생성일시: ${formatDateTime(new Date())}`, { size: 9, color: COLOR_MUTED, gap: 20 });
+
+  w.text(`출장기간   ${formatDate(trip.startDate)} ~ ${formatDate(trip.endDate)}`, {
+    size: 12,
+    bold: true,
+    gap: 22,
+  });
+  w.text("출장경로", { size: 13, bold: true, gap: 20 });
+  for (const stop of trip.stops) {
+    w.text(`${STOP_TYPE_LABEL[stop.type]}   ${stop.location}`, {
+      size: 11,
+      gap: 18,
+    });
+  }
+  w.spacer(8);
+  w.hr();
+
+  w.text("항목별 합계", { size: 13, bold: true, gap: 20 });
+  for (const c of SETTLED_CATEGORIES) {
+    w.text(
+      `${CATEGORY_LABEL[c]}   ${byCategory[c].length}건   ${sumByCategory[c].toLocaleString("ko-KR")}원`,
+      { size: 11, gap: 18 }
+    );
+  }
+  w.text(`현장사진   ${byCategory.FIELD.length}건`, { size: 11, gap: 18 });
+  w.spacer(4);
+  w.text(`전체 합계   ${totalAmount.toLocaleString("ko-KR")}원`, {
+    size: 15,
+    bold: true,
+    color: COLOR_ACCENT,
+    gap: 28,
+  });
+  w.hr();
+
+  for (const c of SETTLED_CATEGORIES) {
+    const items = byCategory[c];
+    if (items.length === 0) continue;
+
+    w.ensureSpace(40);
+    w.text(`${CATEGORY_LABEL[c]} 세부내역 (${items.length}건)`, { size: 13, bold: true, gap: 20 });
+
+    for (const r of items) {
+      const statusLabel = VERDICT_LABEL[r.verdictStatus];
+      const statusColor =
+        r.verdictStatus === "REJECTED" ? COLOR_REJECTED : r.verdictStatus === "PARTIAL" ? COLOR_PARTIAL : COLOR_TEXT;
+
+      w.ensureSpace(60);
+      w.text(`[${statusLabel}] ${r.ocrMerchantGuess ?? "상호명 인식 안 됨"}`, {
+        size: 11.5,
+        bold: true,
+        color: statusColor,
+        gap: 16,
+      });
+      w.text(
+        `  일시: ${r.ocrDateGuess ? formatDateTime(r.ocrDateGuess) : "인식 안 됨"}   ` +
+          `인식금액: ${r.ocrAmountGuess !== null ? r.ocrAmountGuess.toLocaleString("ko-KR") + "원" : "인식 안 됨"}   ` +
+          `인정금액: ${r.verdictAmount !== null ? r.verdictAmount.toLocaleString("ko-KR") + "원" : "-"}`,
+        { size: 10, color: COLOR_MUTED, gap: 15 }
+      );
+      if (r.verdictMessage) {
+        w.text(`  ${r.verdictMessage}`, { size: 10, color: statusColor, gap: 15 });
+      }
+      if (r.verdictRegulationRef) {
+        w.text(`  근거: ${r.verdictRegulationRef}`, { size: 9, color: COLOR_MUTED, gap: 15 });
+      }
+      for (const img of r.images) {
+        await w.image(img.path);
+      }
+      w.spacer(6);
+    }
+    w.hr();
+  }
+
+  // 현장사진: 판정 대상이 아닌 순수 증빙이라 상태/금액 없이 사진만 나열한다.
+  if (byCategory.FIELD.length > 0) {
+    w.ensureSpace(40);
+    w.text(`현장사진 (${byCategory.FIELD.length}건)`, { size: 13, bold: true, gap: 20 });
+    for (const [i, r] of byCategory.FIELD.entries()) {
+      w.ensureSpace(30);
+      w.text(`${i + 1}. ${formatDateTime(r.createdAt)}`, { size: 10.5, color: COLOR_MUTED, gap: 15 });
+      for (const img of r.images) {
+        await w.image(img.path);
+      }
+      w.spacer(6);
+    }
+    w.hr();
+  }
+
+  w.spacer(10);
+  w.text(FOOTER_DISCLAIMER, { size: 9, color: COLOR_MUTED, gap: 14 });
+
+  return doc.save();
+}

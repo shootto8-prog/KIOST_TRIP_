@@ -1,0 +1,234 @@
+{
+  "$schema_version": "0.2.0",
+  "rule_set_version": "2026-07-20",
+  "description": "국내여비 실비정산 검증 룰테이블. 금액/시간/등급/업체유형 판정은 이 파일의 값을 결정론적으로 사용하고, LLM은 OCR 텍스트 해석(품목·등급·장소 일치 여부)과 설명문 생성에만 사용한다.",
+  "source": {
+    "regulation_file": "r1/여비규정.pdf",
+    "regulation_title": "한국해양과학기술원 여비규정 (2026.05.18 개정 시행)",
+    "grade_applied": "선임급 이하 (직급 입력을 받지 않으므로 전 사용자 공통 적용)"
+  },
+  "known_discrepancies": [
+    {
+      "field": "lodging.daily_cap_krw",
+      "note": "여비규정 별표 제1호(국내여비지급표) 재추출 결과 '선임급 이하' 숙박비 상한은 80,000원으로 추정됨(책임급과 병합 셀로 표기되어 있어 80,000원이 책임급·선임급이하 공통 상한으로 보임). 그러나 사용자가 별도 최신 내부 기준으로 120,000원을 최종 확정 지시하여 본 파일은 120,000원을 적용한다. 이 값이 실제 사내 지침과 다르면 이 discrepancy를 다시 확인할 것."
+    }
+  ],
+  "common": {
+    "trip_date_mismatch": {
+      "description": "영수증에서 인식된 날짜가 출장정보의 출발일~도착일 범위 밖인 경우 (출장기간이 아닌 날짜의 영수증 반영 방지). 조식/교통/숙박 공통 적용.",
+      "on_fail": {
+        "result": "reject",
+        "message": "영수증 날짜가 출장기간과 일치하지 않습니다. 확인후 다시 제출하여 주세요"
+      }
+    }
+  },
+  "breakfast": {
+    "item_name": "조식",
+    "regulation_ref": "별표 제1호 비고5)",
+    "max_receipts": 1,
+    "amount_cap_krw": 15000,
+    "allowed_time_window": {
+      "start": "05:00:00",
+      "end": "10:00:59",
+      "reference_date": "출장 당일 (여행 시작일 기준)"
+    },
+    "disallowed_item_keywords": [
+      "비닐봉투",
+      "봉투값",
+      "봉투대",
+      "주류",
+      "맥주",
+      "소주",
+      "와인",
+      "담배",
+      "전자담배"
+    ],
+    "checks": [
+      {
+        "order": 1,
+        "id": "item_unrecognized",
+        "description": "영수증에서 품목을 확인할 수 없는 경우",
+        "on_fail": {
+          "result": "reject",
+          "message": "품목 확인이 되지 않는 영수증은 증빙이 되지 않습니다"
+        }
+      },
+      {
+        "order": 2,
+        "id": "trip_date_mismatch",
+        "description": "공통 규칙(common.trip_date_mismatch) 참고 - 출장기간 밖 날짜"
+      },
+      {
+        "order": 3,
+        "id": "location_mismatch",
+        "description": "영수증에서 인식된 장소가 출장경로(출발/경유/도착지) 어디와도 일치하지 않는 경우",
+        "on_fail": {
+          "result": "reject",
+          "message": "조식 장소가 출장장소와 일치하지 않습니다. 확인후 다시 제출하여 주세요"
+        }
+      },
+      {
+        "order": 4,
+        "id": "time_window",
+        "description": "영수증 시각이 출장 당일 allowed_time_window(05:00:00~10:00:59) 범위를 벗어난 경우",
+        "on_fail": {
+          "result": "reject",
+          "message": "정산 인정기준 시간을 초과하였습니다"
+        }
+      },
+      {
+        "order": 5,
+        "id": "disallowed_item",
+        "description": "품목에 disallowed_item_keywords 중 하나라도 포함된 경우",
+        "on_fail": {
+          "result": "reject",
+          "message": "불인정항목이 포함된 영수증으로 확인됩니다. 해당 영수증은 정산처리가 되지 않습니다"
+        }
+      },
+      {
+        "order": 6,
+        "id": "multiple_receipts",
+        "description": "동일 조식 항목에 2장 이상의 영수증이 첨부된 경우 (max_receipts 초과)",
+        "on_fail": {
+          "result": "reject",
+          "message": "다수 영수증의 합산 청구는 불가합니다"
+        }
+      },
+      {
+        "order": 7,
+        "id": "amount_cap",
+        "description": "영수증 금액이 amount_cap_krw(15,000원)를 초과한 경우",
+        "on_fail": {
+          "result": "partial_accept",
+          "accepted_amount": "min(receipt_amount, amount_cap_krw)",
+          "message": "최대 15,000원만 정산됨을 안내드립니다"
+        }
+      }
+    ]
+  },
+  "transport": {
+    "item_name": "교통",
+    "regulation_ref": "제12조, 제13조, 별표 제1호",
+    "sub_menu": ["ship", "air"],
+    "amount_cap_krw": null,
+    "ship": {
+      "label": "선박",
+      "required_keywords": ["선박", "여객선", "페리", "훼리", "승선", "출항", "선사", "선편", "항구", "부두", "ferry", "ship"],
+      "disallowed_classes": ["1등석", "1등실", "특실"],
+      "checks": [
+        {
+          "order": 1,
+          "id": "not_transport_receipt",
+          "description": "required_keywords 중 하나도 포함되지 않는 경우 (숙박/조식 등 다른 영수증을 교통-선박으로 잘못 제출)",
+          "on_fail": {
+            "result": "reject",
+            "message": "제출하신 서류는 선박 관련 영수증으로 확인되지 않습니다. 확인후 다시 제출하여 주세요"
+          }
+        },
+        {
+          "order": 2,
+          "id": "class_restriction",
+          "description": "좌석 등급이 disallowed_classes에 해당하는 경우 (일반석만 인정)",
+          "on_fail": {
+            "result": "reject",
+            "message": "제출하신 서류는 국내여비 지급표를 충족하지 않습니다"
+          }
+        },
+        {
+          "order": 3,
+          "id": "location_mismatch",
+          "description": "영수증에서 인식된 장소가 출장경로(출발/경유/도착지) 어디와도 일치하지 않는 경우",
+          "on_fail": {
+            "result": "reject",
+            "message": "교통편 장소가 출장장소와 일치하지 않습니다. 확인후 다시 제출하여 주세요"
+          }
+        },
+        {
+          "order": 4,
+          "id": "trip_date_mismatch",
+          "description": "공통 규칙(common.trip_date_mismatch) 참고 - 출장기간 밖 날짜"
+        }
+      ]
+    },
+    "air": {
+      "label": "항공",
+      "required_keywords": ["항공", "탑승권", "공항", "비행기", "항공권", "airline", "flight", "boarding", "airport"],
+      "disallowed_classes": ["비즈니스", "비즈니스석", "business", "퍼스트", "퍼스트클래스", "first", "first class"],
+      "checks": [
+        {
+          "order": 1,
+          "id": "not_transport_receipt",
+          "description": "required_keywords 중 하나도 포함되지 않는 경우 (숙박/조식 등 다른 영수증을 교통-항공으로 잘못 제출)",
+          "on_fail": {
+            "result": "reject",
+            "message": "제출하신 서류는 항공 관련 영수증으로 확인되지 않습니다. 확인후 다시 제출하여 주세요"
+          }
+        },
+        {
+          "order": 2,
+          "id": "class_restriction",
+          "description": "좌석 등급이 disallowed_classes에 해당하는 경우 (이코노미석만 인정)",
+          "on_fail": {
+            "result": "reject",
+            "message": "제출하신 서류는 국내여비 지급표를 충족하지 않습니다"
+          }
+        },
+        {
+          "order": 3,
+          "id": "location_mismatch",
+          "description": "영수증에서 인식된 장소가 출장경로(출발/경유/도착지) 어디와도 일치하지 않는 경우",
+          "on_fail": {
+            "result": "reject",
+            "message": "교통편 장소가 출장장소와 일치하지 않습니다. 확인후 다시 제출하여 주세요"
+          }
+        },
+        {
+          "order": 4,
+          "id": "trip_date_mismatch",
+          "description": "공통 규칙(common.trip_date_mismatch) 참고 - 출장기간 밖 날짜"
+        }
+      ]
+    }
+  },
+  "lodging": {
+    "item_name": "숙박",
+    "regulation_ref": "제10조③, 제14조②⑤, 별표 제1호",
+    "daily_cap_krw": 120000,
+    "required_keywords": ["영수증", "receipt", "Receipt", "RECEIPT"],
+    "checks": [
+      {
+        "order": 1,
+        "id": "not_a_receipt",
+        "description": "영수증/receipt 등의 문구가 required_keywords 중 하나도 포함되지 않은 경우",
+        "on_fail": {
+          "result": "reject",
+          "message": "제출하신 서류는 영수증이 아닙니다. 확인후 다시 제출하여 주세요"
+        }
+      },
+      {
+        "order": 2,
+        "id": "trip_date_mismatch",
+        "description": "공통 규칙(common.trip_date_mismatch) 참고 - 출장기간 밖 날짜"
+      },
+      {
+        "order": 3,
+        "id": "location_mismatch",
+        "description": "영수증 거래장소가 출장정보(도착지 또는 경유지) 목록과 일치하지 않는 경우",
+        "on_fail": {
+          "result": "reject",
+          "message": "숙박장소가 출장장소와 일치하지 않습니다. 확인후 다시 제출하여 주세요"
+        }
+      },
+      {
+        "order": 4,
+        "id": "amount_cap",
+        "description": "1박 금액이 daily_cap_krw(120,000원)를 초과한 경우",
+        "on_fail": {
+          "result": "partial_accept",
+          "accepted_amount": "min(receipt_amount, daily_cap_krw)",
+          "message": "최대 120,000원만 정산됨을 안내드립니다"
+        }
+      }
+    ]
+  }
+}

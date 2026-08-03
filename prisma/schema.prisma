@@ -1,0 +1,113 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+enum StopType {
+  DEPARTURE
+  STOPOVER
+  ARRIVAL
+}
+
+enum ReceiptCategory {
+  BREAKFAST
+  TRANSPORT
+  LODGING
+  FIELD
+}
+
+enum TransportMode {
+  SHIP
+  AIR
+  RAIL
+  PRIVATE_CAR
+  BUS
+}
+
+enum SeatClass {
+  NORMAL
+  RESTRICTED
+}
+
+enum OcrStatus {
+  PENDING
+  DONE
+  FAILED
+}
+
+enum VerdictStatus {
+  PENDING
+  APPROVED
+  PARTIAL
+  REJECTED
+}
+
+enum TripStatus {
+  ACTIVE
+  COMPLETED
+}
+
+model Trip {
+  id         String     @id @default(cuid())
+  ownerEmail String?
+  status     TripStatus @default(ACTIVE)
+  startDate  DateTime
+  endDate    DateTime
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+
+  stops    TripStop[]
+  receipts Receipt[]
+}
+
+model TripStop {
+  id       String   @id @default(cuid())
+  tripId   String
+  trip     Trip     @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  type     StopType
+  location String
+  order    Int
+
+  @@index([tripId])
+}
+
+model Receipt {
+  id            String          @id @default(cuid())
+  tripId        String
+  trip          Trip            @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  category      ReceiptCategory
+  transportMode TransportMode?
+  seatClass     SeatClass?
+  images        ReceiptImage[]
+  createdAt     DateTime        @default(now())
+
+  ocrStatus        OcrStatus @default(PENDING)
+  ocrText          String?
+  ocrAmountGuess   Int?
+  ocrDateGuess     DateTime?
+  ocrMerchantGuess String?
+  ocrModel         String?
+
+  verdictStatus      VerdictStatus @default(PENDING)
+  verdictAmount      Int?
+  verdictMessage     String?
+  verdictFailedCheck String?
+  verdictRegulationRef String?
+
+  @@index([tripId, category])
+}
+
+/** 영수증 한 건에 사진을 여러 장(왕복 항공권 등) 첨부할 수 있어 별도 테이블로 분리했다. */
+model ReceiptImage {
+  id        String  @id @default(cuid())
+  receiptId String
+  receipt   Receipt @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+  path      String
+  order     Int
+
+  @@index([receiptId])
+}
