@@ -10,7 +10,6 @@
 
 # 업로드된 영수증 원본 (개인 결제정보 포함 가능)
 uploads/
-receipts/
 
 # Python
 __pycache__/

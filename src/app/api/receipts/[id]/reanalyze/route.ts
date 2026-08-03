@@ -1,7 +1,5 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { readFile } from "fs/promises";
-import path from "path";
 import { analyzeReceipt, tripNights } from "@/lib/analyzeReceipt";
 import type { ReceiptImage } from "@/lib/receiptOcr";
 
@@ -38,9 +36,10 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
 
   const photoGroups: ReceiptImage[][] = [];
   for (const img of receipt.images) {
-    const absPath = path.join(process.cwd(), "public", img.path);
     try {
-      const buffer = await readFile(absPath);
+      const res = await fetch(img.path);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const buffer = Buffer.from(await res.arrayBuffer());
       photoGroups.push([{ buffer, mimeType: mimeFromImagePath(img.path) }]);
     } catch {
       return NextResponse.json({ error: "저장된 이미지 파일을 찾을 수 없습니다." }, { status: 404 });
@@ -67,6 +66,12 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
   const updated = await prisma.receipt.update({
     where: { id },
     data: {
+      ocrStatus: analysis.ocrStatus,
+      ocrText: analysis.ocrText,
+      ocrAmountGuess: analysis.ocrAmountGuess,
+      ocrDateGuess: analysis.ocrDateGuess,
+      ocrMerchantGuess: analysis.ocrMerchantGuess,
+      ocrModel: analysis.ocrModel,
       ocrStatus: analysis.ocrStatus,
       ocrText: analysis.ocrText,
       ocrAmountGuess: analysis.ocrAmountGuess,

@@ -70,17 +70,24 @@ class PdfWriter {
     this.y -= 14;
   }
 
-  async image(publicRelPath: string) {
-    const abs = path.join(process.cwd(), "public", publicRelPath);
+  async image(imagePath: string) {
+    // 영수증 사진은 Vercel Blob의 절대 URL로 저장된다 - 로컬 파일시스템 상대경로였던
+    // 예전 방식과 둘 다 대응해둔다.
     let bytes: Buffer;
     try {
-      bytes = await readFile(abs);
+      if (/^https?:\/\//.test(imagePath)) {
+        const res = await fetch(imagePath);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        bytes = Buffer.from(await res.arrayBuffer());
+      } else {
+        bytes = await readFile(path.join(process.cwd(), "public", imagePath));
+      }
     } catch {
       this.text("(첨부 이미지 파일을 찾을 수 없습니다)", { size: 10, color: COLOR_MUTED, gap: 16 });
       return;
     }
 
-    const ext = path.extname(publicRelPath).toLowerCase();
+    const ext = path.extname(imagePath).toLowerCase();
     let embedded;
     try {
       if (ext === ".png") {
