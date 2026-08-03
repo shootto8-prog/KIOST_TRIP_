@@ -11,10 +11,10 @@ const PAGE_HEIGHT = 841.89;
 const MARGIN = 42;
 const CONTENT_WIDTH = PAGE_WIDTH - MARGIN * 2;
 
-// 로컬 프로토타입은 Windows에서만 실행되는 것을 전제로, OS에 이미 설치된 한글 폰트를 그대로 사용한다.
-// (다른 OS/서버로 배포할 경우 오픈소스 한글 폰트를 프로젝트 자산으로 번들링해야 함 - PRD 열린 이슈 참고)
-const FONT_REGULAR_PATH = "C:\\Windows\\Fonts\\malgun.ttf";
-const FONT_BOLD_PATH = "C:\\Windows\\Fonts\\malgunbd.ttf";
+// Windows 시스템 폰트(맑은고딕) 대신, 어떤 서버(Vercel 등 Linux)에서도 동일하게 동작하도록
+// 오픈소스 한글 폰트(Pretendard, SIL OFL)를 프로젝트 자산으로 번들링해서 쓴다.
+const FONT_REGULAR_PATH = path.join(process.cwd(), "public", "fonts", "Pretendard-Regular.ttf");
+const FONT_BOLD_PATH = path.join(process.cwd(), "public", "fonts", "Pretendard-Bold.ttf");
 
 const COLOR_TEXT = rgb(0.11, 0.11, 0.12);
 const COLOR_MUTED = rgb(0.45, 0.45, 0.47);
@@ -118,12 +118,13 @@ async function embedKoreanFonts(doc: PDFDocument): Promise<{ regular: PDFFont; b
   try {
     [regularBytes, boldBytes] = await Promise.all([readFile(FONT_REGULAR_PATH), readFile(FONT_BOLD_PATH)]);
   } catch {
-    throw new Error(
-      "한글 폰트 파일을 찾을 수 없습니다 (C:\\Windows\\Fonts\\malgun.ttf). PDF 생성은 현재 Windows 환경 전용입니다."
-    );
+    throw new Error(`한글 폰트 파일을 찾을 수 없습니다 (${FONT_REGULAR_PATH}).`);
   }
-  const regular = await doc.embedFont(regularBytes, { subset: true });
-  const bold = await doc.embedFont(boldBytes, { subset: true });
+  // subset: true로 두면 pdf-lib(fontkit)의 서브셋터가 Pretendard의 글리프 테이블을 제대로
+  // 처리하지 못해 한글 대부분이 빈 칸으로 출력되는 문제가 있어(테스트로 확인됨), 폰트 전체를
+  // 그대로 embed한다. 파일 용량은 커지지만(수 MB) 이메일 첨부 기준으로는 충분히 작다.
+  const regular = await doc.embedFont(regularBytes, { subset: false });
+  const bold = await doc.embedFont(boldBytes, { subset: false });
   return { regular, bold };
 }
 
