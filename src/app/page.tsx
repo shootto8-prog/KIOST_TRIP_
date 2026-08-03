@@ -5,6 +5,10 @@ import TripForm from "@/components/TripForm";
 import TripDeleteButton from "@/components/TripDeleteButton";
 import { IconBreakfast, IconTransport, IconLodging, IconPhoto } from "@/components/icons";
 
+// 출장 목록은 매 요청마다 최신 상태를 보여줘야 한다 - 빌드 시점에 정적으로 고정되면
+// 새로 등록/종료된 출장이 재배포 전까지 반영되지 않는다.
+export const dynamic = "force-dynamic";
+
 export default async function HomePage() {
   const [activeTrips, completedTrips] = await Promise.all([
     prisma.trip.findMany({
