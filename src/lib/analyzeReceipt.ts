@@ -1,5 +1,6 @@
 import { runReceiptOcr, type ReceiptImage } from "./receiptOcr";
 import { extractReceiptHints } from "./receiptHints";
+import { parseKstDatetime } from "./kst";
 import {
   verifyBreakfast,
   verifyTransport,
@@ -63,7 +64,9 @@ async function runOcrOnImages(images: ReceiptImage[]): Promise<SingleOcrResult> 
         ocrStatus: "DONE",
         ocrText: result.text,
         ocrAmountGuess: result.structured?.amount ?? hints.amountGuess,
-        ocrDateGuess: dateSource ? new Date(dateSource) : null,
+        // dateSource는 타임존 표시가 없는 "한국 현지시각" 문자열이다 - new Date(...)로 바로
+        // 바꾸면 실행 환경(Vercel은 UTC)의 타임존으로 잘못 해석돼 9시간 밀리는 버그가 있었다.
+        ocrDateGuess: dateSource ? parseKstDatetime(dateSource) : null,
         ocrMerchantGuess: result.structured?.merchant ?? hints.merchantGuess,
         ocrModel: result.model,
       };
@@ -114,13 +117,18 @@ async function runOcrSummed(photos: ReceiptImage[][]): Promise<SingleOcrResult> 
   };
 }
 
-/** 출장기간(출발~복귀)으로 "박수"를 자동 계산한다 - 8/1 출발, 8/4 복귀면 3박. 사용자 입력 불필요. */
+/**
+ * 출장기간(출발~복귀)으로 "박수"를 자동 계산한다 - 8/1 출발, 8/4 복귀면 3박. 사용자 입력 불필요.
+ * 출장 시작/종료일은 "YYYY-MM-DD" 형태로 입력받아 항상 UTC 자정으로 저장되므로(ECMAScript
+ * 스펙상 날짜만 있는 문자열은 항상 UTC로 해석됨), 실행 환경 타임존과 무관하게 UTC 기준
+ * getter로 읽어야 서버(UTC)/로컬(KST) 어디서 실행하든 같은 날짜가 나온다.
+ */
 export function tripNights(trip: { startDate: Date; endDate: Date }): number {
   const start = trip.startDate;
   const end = trip.endDate;
-  const startDay = new Date(start.getFullYear(), start.getMonth(), start.getDate());
-  const endDay = new Date(end.getFullYear(), end.getMonth(), end.getDate());
-  const diffDays = Math.round((endDay.getTime() - startDay.getTime()) / 86400000);
+  const startDay = Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate());
+  const endDay = Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), end.getUTCDate());
+  const diffDays = Math.round((endDay - startDay) / 86400000);
   return Math.max(1, diffDays);
 }
 

@@ -194,7 +194,7 @@
     "item_name": "숙박",
     "regulation_ref": "제10조③, 제14조②⑤, 별표 제1호",
     "daily_cap_krw": 120000,
-    "required_keywords": ["영수증", "receipt", "Receipt", "RECEIPT"],
+    "required_keywords": ["영수증", "receipt", "Receipt", "RECEIPT", "매출전표", "승인번호", "거래일시"],
     "checks": [
       {
         "order": 1,

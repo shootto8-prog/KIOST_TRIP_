@@ -1,4 +1,5 @@
 import rules from "../../rules/domestic_travel_rules.json";
+import { getKstParts } from "./kst";
 
 export type VerdictStatus = "APPROVED" | "PARTIAL" | "REJECTED";
 
@@ -42,7 +43,11 @@ function isLocationMatch(text: string, tripLocations: string[]): boolean {
   return tripLocations.some((loc) => loc.trim().length > 0 && containsLocationToken(text, loc.trim()));
 }
 
-/** 영수증에서 인식된 날짜(시각 무관, 일 단위)가 출장 출발일~도착일 범위 안에 있는지 확인한다. */
+/**
+ * 영수증에서 인식된 날짜(시각 무관, 일 단위)가 출장 출발일~도착일 범위 안에 있는지 확인한다.
+ * 실행 환경(로컬은 KST, Vercel은 UTC)에 따라 달력 날짜가 다르게 읽히지 않도록, 항상
+ * 한국 달력 기준(getKstParts)으로 비교한다.
+ */
 function isWithinTripDateRange(
   ocrDateGuess: string | null,
   tripStartDate: string,
@@ -52,12 +57,13 @@ function isWithinTripDateRange(
   const d = new Date(ocrDateGuess);
   if (Number.isNaN(d.getTime())) return false;
 
-  const tripStart = new Date(tripStartDate);
-  const tripEnd = new Date(tripEndDate);
-  const dDay = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-  const startDay = new Date(tripStart.getFullYear(), tripStart.getMonth(), tripStart.getDate());
-  const endDay = new Date(tripEnd.getFullYear(), tripEnd.getMonth(), tripEnd.getDate());
-  return dDay >= startDay && dDay <= endDay;
+  const dDay = getKstParts(d);
+  const startDay = getKstParts(new Date(tripStartDate));
+  const endDay = getKstParts(new Date(tripEndDate));
+  const dDayNum = Date.UTC(dDay.year, dDay.month, dDay.day);
+  const startDayNum = Date.UTC(startDay.year, startDay.month, startDay.day);
+  const endDayNum = Date.UTC(endDay.year, endDay.month, endDay.day);
+  return dDayNum >= startDayNum && dDayNum <= endDayNum;
 }
 
 type CheckDef = { id: string; on_fail?: { message: string } };
@@ -126,8 +132,10 @@ export function verifyBreakfast(input: BreakfastInput): VerificationResult {
   }
 
   // 순서4: 시간대 확인 (05:00:00~10:00:59) - 날짜는 이미 출장기간 내로 확인됨, 시각만 비교
-  const d = new Date(input.ocrDateGuess!);
-  const secondsOfDay = d.getHours() * 3600 + d.getMinutes() * 60 + d.getSeconds();
+  // 실행 환경 타임존과 무관하게 한국 시각 기준으로 시/분/초를 뽑아야 한다(Vercel은 UTC로 돌아가서
+  // 로컬 getHours() 등을 쓰면 9시간 밀린 값으로 판정하는 버그가 있었다).
+  const { hour, minute, second } = getKstParts(new Date(input.ocrDateGuess!));
+  const secondsOfDay = hour * 3600 + minute * 60 + second;
   const [sh, sm, ssec] = r.allowed_time_window.start.split(":").map(Number);
   const [eh, em, esec] = r.allowed_time_window.end.split(":").map(Number);
   const startSec = sh * 3600 + sm * 60 + ssec;

@@ -1,6 +1,12 @@
+// 보는 사람의 기기 타임존과 무관하게 항상 한국 시각으로 표시한다 - timeZone을 명시하지 않으면
+// 브라우저/서버 로컬 타임존을 따라가버려서, Vercel(UTC) SSR과 한국 브라우저에서 다르게 보이거나
+// 해외에서 접속하면 실제와 다른 시각으로 보이는 문제가 있다.
+const KST = "Asia/Seoul";
+
 export function formatDate(d: Date | string): string {
   const date = typeof d === "string" ? new Date(d) : d;
   return date.toLocaleDateString("ko-KR", {
+    timeZone: KST,
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -14,6 +20,7 @@ export function formatKrw(amount: number): string {
 export function formatDateTime(d: Date | string): string {
   const date = typeof d === "string" ? new Date(d) : d;
   return date.toLocaleString("ko-KR", {
+    timeZone: KST,
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
