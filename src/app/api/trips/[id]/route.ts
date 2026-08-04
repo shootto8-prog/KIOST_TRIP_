@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { rm } from "fs/promises";
-import path from "path";
+import { del } from "@vercel/blob";
+import { parseYmd, INVALID_DATE_MESSAGE } from "@/lib/ymdDate";
 
 type StopInput = {
   type: "DEPARTURE" | "STOPOVER" | "ARRIVAL";
@@ -40,8 +40,12 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   }
 
   if (body.startDate !== undefined || body.endDate !== undefined) {
-    const startDate = body.startDate ? new Date(body.startDate) : trip.startDate;
-    const endDate = body.endDate ? new Date(body.endDate) : trip.endDate;
+    // POST /api/trips와 동일하게, 달력상 존재하지 않는 날짜(13월/45일)는 500 대신 400으로 막는다.
+    const startDate = body.startDate ? parseYmd(body.startDate) : trip.startDate;
+    const endDate = body.endDate ? parseYmd(body.endDate) : trip.endDate;
+    if (!startDate || !endDate) {
+      return NextResponse.json({ error: INVALID_DATE_MESSAGE }, { status: 400 });
+    }
     if (endDate < startDate) {
       return NextResponse.json({ error: "종료일이 시작일보다 빠를 수 없습니다." }, { status: 400 });
     }
@@ -86,19 +90,39 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   return NextResponse.json({ trip: updated });
 }
 
-/** 출장 삭제 - 정거장/영수증 DB 레코드는 cascade로 같이 지워지고, 업로드된 영수증 이미지 파일도 정리한다. */
+/**
+ * 출장 삭제 - 정거장/영수증 DB 레코드는 cascade로 같이 지워지고, 영수증 사진 파일도 Vercel Blob에서
+ * 실제로 지운다.
+ *
+ * 예전에는 `public/uploads/{id}` 로컬 디렉토리를 지우려 했는데, Blob으로 전환한 뒤로 그 경로는
+ * 서버에 존재하지도 않아 `.catch(() => {})`로 조용히 무시되는 죽은 코드였다. 그래서 출장을 지워도
+ * 사진은 Blob에 영구히 남아 무료 용량만 잠식했다.
+ */
 export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
 
-  const trip = await prisma.trip.findUnique({ where: { id } });
+  const trip = await prisma.trip.findUnique({
+    where: { id },
+    include: { receipts: { include: { images: true } } },
+  });
   if (!trip) {
     return NextResponse.json({ error: "출장 정보를 찾을 수 없습니다." }, { status: 404 });
   }
 
+  const blobUrls = [
+    ...new Set(trip.receipts.flatMap((r) => r.images.map((img) => img.path)).filter(Boolean)),
+  ];
+
   await prisma.trip.delete({ where: { id } });
 
-  const uploadDir = path.join(process.cwd(), "public", "uploads", id);
-  await rm(uploadDir, { recursive: true, force: true }).catch(() => {});
+  if (blobUrls.length > 0) {
+    try {
+      await del(blobUrls);
+    } catch (err) {
+      // DB는 이미 지워졌다 - 파일 정리 실패가 삭제 자체를 실패로 만들지는 않는다.
+      console.error("Failed to delete trip blobs:", err);
+    }
+  }
 
   return NextResponse.json({ ok: true });
 }

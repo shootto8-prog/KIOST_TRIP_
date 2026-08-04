@@ -21,6 +21,11 @@ export type AnalyzeReceiptInput = {
   tripLocationsNonDeparture: string[]; // 경유+도착 (숙박용)
   /** 출장기간(출발~복귀)으로 자동 계산한 박수 (숙박용). */
   nights: number;
+  /**
+   * 같은 출장의 "다른" 숙박 영수증들이 이미 인정받은 금액 합계 (숙박용, 이 영수증 자신은 제외).
+   * 호출부(POST /api/receipts, reanalyze)가 DB에서 집계해 넘긴다.
+   */
+  lodgingAlreadyAcceptedInTrip?: number;
 };
 
 export type AnalyzeReceiptOutput = {
@@ -37,10 +42,15 @@ type SingleOcrResult = {
   ocrStatus: "DONE" | "FAILED";
   ocrText: string | null;
   ocrAmountGuess: number | null;
+  /** 금액이 "합계/총액" 키워드 없이 추정된 폴백 값인지 (receiptHints.ts 참고). */
+  ocrAmountIsEstimate: boolean;
   ocrDateGuess: Date | null;
   ocrMerchantGuess: string | null;
   ocrModel: string | null;
 };
+
+/** 교통처럼 사진별로 따로 인식하는 경우, 합쳐진 요약값과 함께 사진별 결과도 들고 다닌다. */
+type MultiOcrResult = SingleOcrResult & { perPhoto: SingleOcrResult[] };
 
 const NO_OCR_RESULT: AnalyzeReceiptOutput = {
   ocrStatus: "PENDING",
@@ -60,10 +70,13 @@ async function runOcrOnImages(images: ReceiptImage[]): Promise<SingleOcrResult> 
       // 원문 텍스트에 대한 정규식 휴리스틱으로 대체한다.
       const hints = extractReceiptHints(result.text);
       const dateSource = result.structured?.datetime ?? hints.dateGuess;
+      const structuredAmount = result.structured?.amount ?? null;
       return {
         ocrStatus: "DONE",
         ocrText: result.text,
-        ocrAmountGuess: result.structured?.amount ?? hints.amountGuess,
+        ocrAmountGuess: structuredAmount ?? hints.amountGuess,
+        // LLM이 금액을 못 뽑아서 정규식 폴백(가장 큰 숫자)에 기댄 경우에만 "추정값"이다.
+        ocrAmountIsEstimate: structuredAmount === null && hints.amountIsEstimate,
         // dateSource는 타임존 표시가 없는 "한국 현지시각" 문자열이다 - new Date(...)로 바로
         // 바꾸면 실행 환경(Vercel은 UTC)의 타임존으로 잘못 해석돼 9시간 밀리는 버그가 있었다.
         ocrDateGuess: dateSource ? parseKstDatetime(dateSource) : null,
@@ -79,6 +92,7 @@ async function runOcrOnImages(images: ReceiptImage[]): Promise<SingleOcrResult> 
     ocrStatus: "FAILED",
     ocrText: null,
     ocrAmountGuess: null,
+    ocrAmountIsEstimate: false,
     ocrDateGuess: null,
     ocrMerchantGuess: null,
     ocrModel: null,
@@ -94,12 +108,15 @@ async function runOcrMerged(photos: ReceiptImage[][]): Promise<SingleOcrResult> 
  * 교통(선박/항공): 왕복처럼 사진마다 별개의 결제 건일 수 있어 사진별로 각각 OCR을 돌린 뒤
  * 인식된 금액을 코드에서 합산한다(사진 한 번에 합쳐 보내면 모델이 왕복 두 건을 하나로
  * 오인식하기 쉽기 때문).
+ *
+ * 여기서 만드는 ocrAmountGuess는 "인식된 금액의 합"(화면 표시용)이고, 실제 정산에 인정되는
+ * 금액은 verifyTransport가 사진별 검사를 통과한 사진만 다시 합산해 정한다.
  */
-async function runOcrSummed(photos: ReceiptImage[][]): Promise<SingleOcrResult> {
+async function runOcrSummed(photos: ReceiptImage[][]): Promise<MultiOcrResult> {
   const perPhoto = await Promise.all(photos.map((imgs) => runOcrOnImages(imgs)));
   const succeeded = perPhoto.filter((r) => r.ocrStatus === "DONE");
   if (succeeded.length === 0) {
-    return perPhoto[0];
+    return { ...perPhoto[0], perPhoto };
   }
   const ocrText = perPhoto
     .map((r, i) => `--- 사진 ${i + 1} ---\n${r.ocrText ?? "(인식 불가)"}`)
@@ -111,9 +128,11 @@ async function runOcrSummed(photos: ReceiptImage[][]): Promise<SingleOcrResult> 
     ocrStatus: "DONE",
     ocrText,
     ocrAmountGuess,
+    ocrAmountIsEstimate: succeeded.some((r) => r.ocrAmountIsEstimate),
     ocrDateGuess,
     ocrMerchantGuess,
     ocrModel: succeeded[0].ocrModel,
+    perPhoto,
   };
 }
 
@@ -160,7 +179,8 @@ export async function analyzeReceipt(input: AnalyzeReceiptInput): Promise<Analyz
     };
   }
 
-  const ocr = input.category === "TRANSPORT" ? await runOcrSummed(input.photos) : await runOcrMerged(input.photos);
+  const multi = input.category === "TRANSPORT" ? await runOcrSummed(input.photos) : null;
+  const ocr: SingleOcrResult = multi ?? (await runOcrMerged(input.photos));
   const ocrDateGuessIso = ocr.ocrDateGuess ? ocr.ocrDateGuess.toISOString() : null;
 
   const verdict =
@@ -169,6 +189,7 @@ export async function analyzeReceipt(input: AnalyzeReceiptInput): Promise<Analyz
           ocrStatus: ocr.ocrStatus,
           ocrText: ocr.ocrText,
           ocrAmountGuess: ocr.ocrAmountGuess,
+          ocrAmountIsEstimate: ocr.ocrAmountIsEstimate,
           ocrDateGuess: ocrDateGuessIso,
           tripStartDate: input.tripStartDate,
           tripEndDate: input.tripEndDate,
@@ -180,21 +201,34 @@ export async function analyzeReceipt(input: AnalyzeReceiptInput): Promise<Analyz
           ocrStatus: ocr.ocrStatus,
           ocrText: ocr.ocrText,
           ocrAmountGuess: ocr.ocrAmountGuess,
+          ocrAmountIsEstimate: ocr.ocrAmountIsEstimate,
           ocrDateGuess: ocrDateGuessIso,
           tripStartDate: input.tripStartDate,
           tripEndDate: input.tripEndDate,
           tripLocations: input.tripLocationsAll,
+          // 사진별로 업체유형/좌석등급/장소를 각각 검사해, 통과한 사진의 금액만 합산하게 한다.
+          photos: multi?.perPhoto,
         })
       : verifyLodging({
           ocrStatus: ocr.ocrStatus,
           ocrText: ocr.ocrText,
           ocrAmountGuess: ocr.ocrAmountGuess,
+          ocrAmountIsEstimate: ocr.ocrAmountIsEstimate,
           ocrDateGuess: ocrDateGuessIso,
           tripStartDate: input.tripStartDate,
           tripEndDate: input.tripEndDate,
           tripLocations: input.tripLocationsNonDeparture,
           nights: input.nights,
+          alreadyAcceptedInTrip: input.lodgingAlreadyAcceptedInTrip,
         });
 
-  return { ...ocr, verdict };
+  return {
+    ocrStatus: ocr.ocrStatus,
+    ocrText: ocr.ocrText,
+    ocrAmountGuess: ocr.ocrAmountGuess,
+    ocrDateGuess: ocr.ocrDateGuess,
+    ocrMerchantGuess: ocr.ocrMerchantGuess,
+    ocrModel: ocr.ocrModel,
+    verdict,
+  };
 }

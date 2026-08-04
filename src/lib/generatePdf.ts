@@ -5,6 +5,10 @@ import path from "path";
 import { prisma } from "./prisma";
 import { CATEGORY_LABEL, STOP_TYPE_LABEL, VERDICT_LABEL, formatDate, formatDateTime } from "./format";
 import { getTripWithSummary } from "./tripSummary";
+import { toPdfEmbeddableJpeg } from "./imageConvert";
+
+/** 사진 한 장이 응답하지 않아도 정산서 생성 전체가 무한 대기하지 않도록 상한을 둔다. */
+const IMAGE_FETCH_TIMEOUT_MS = 15_000;
 
 const PAGE_WIDTH = 595.28; // A4 (pt)
 const PAGE_HEIGHT = 841.89;
@@ -76,35 +80,51 @@ class PdfWriter {
     let bytes: Buffer;
     try {
       if (/^https?:\/\//.test(imagePath)) {
-        const res = await fetch(imagePath);
+        const res = await fetch(imagePath, { signal: AbortSignal.timeout(IMAGE_FETCH_TIMEOUT_MS) });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         bytes = Buffer.from(await res.arrayBuffer());
       } else {
         bytes = await readFile(path.join(process.cwd(), "public", imagePath));
       }
-    } catch {
-      this.text("(첨부 이미지 파일을 찾을 수 없습니다)", { size: 10, color: COLOR_MUTED, gap: 16 });
+    } catch (err) {
+      const timedOut = err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError");
+      this.text(
+        timedOut
+          ? "(첨부 이미지를 시간 내에 불러오지 못했습니다)"
+          : "(첨부 이미지 파일을 찾을 수 없습니다)",
+        { size: 10, color: COLOR_MUTED, gap: 16 }
+      );
       return;
     }
 
-    const ext = path.extname(imagePath).toLowerCase();
+    // pdf-lib은 화면 배치 크기(아래 maxW/maxH)와 무관하게 원본 바이트를 그대로 삽입한다.
+    // 아이폰 사진(장당 4~6MB)을 열 장 넣으면 PDF가 50MB를 넘겨 Gmail 첨부 한도(25MB)에 걸리거나
+    // 서버리스 함수가 시간 초과로 죽었다 - 삽입 직전에 축소본(장당 200~300KB)으로 바꾼다.
+    // HEIC처럼 예전 pdf-lib 분기가 "미리보기 미지원"으로 건너뛰던 형식도 여기서 함께 처리된다.
+    // (OCR/화면 표시에 쓰는 원본 파일은 그대로 둔다 - 인식 정확도 유지 목적)
     let embedded;
     try {
-      if (ext === ".png") {
-        embedded = await this.doc.embedPng(bytes);
-      } else if (ext === ".jpg" || ext === ".jpeg") {
-        embedded = await this.doc.embedJpg(bytes);
-      } else {
-        this.text(`(미리보기 미지원 이미지 형식: ${ext} - 원본 파일에서 확인해주세요)`, {
-          size: 10,
-          color: COLOR_MUTED,
-          gap: 16,
-        });
+      embedded = await this.doc.embedJpg(await toPdfEmbeddableJpeg(bytes));
+    } catch (resizeErr) {
+      console.error("PDF image resize failed, falling back to original bytes:", resizeErr);
+      const ext = path.extname(imagePath).toLowerCase();
+      try {
+        if (ext === ".png") {
+          embedded = await this.doc.embedPng(bytes);
+        } else if (ext === ".jpg" || ext === ".jpeg") {
+          embedded = await this.doc.embedJpg(bytes);
+        } else {
+          this.text(`(미리보기 미지원 이미지 형식: ${ext} - 원본 파일에서 확인해주세요)`, {
+            size: 10,
+            color: COLOR_MUTED,
+            gap: 16,
+          });
+          return;
+        }
+      } catch {
+        this.text("(이미지 렌더링에 실패했습니다)", { size: 10, color: COLOR_MUTED, gap: 16 });
         return;
       }
-    } catch {
-      this.text("(이미지 렌더링에 실패했습니다)", { size: 10, color: COLOR_MUTED, gap: 16 });
-      return;
     }
 
     const maxW = 220;

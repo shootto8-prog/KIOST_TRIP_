@@ -42,6 +42,56 @@ const VERDICT_BADGE_CLASS: Record<ReceiptItem["verdictStatus"], string> = {
   PENDING: "bg-neutral-400/90 text-white",
 };
 
+/**
+ * "다시 인식 시도" 버튼을 띄워야 하는 판정들. 인식 자체가 안 된 경우(ocr_unavailable),
+ * 여러 장 중 일부만 인식돼 금액이 조용히 빠진 경우(partial_ocr_failure), 금액을 추정값으로만
+ * 읽어 판정을 보류한 경우(amount_estimated)는 모두 재시도로 나아질 수 있다.
+ */
+const RETRYABLE_FAILED_CHECKS = new Set([
+  "ocr_unavailable",
+  "partial_ocr_failure",
+  "amount_estimated",
+]);
+
+/** 파일 확장자로 MIME 타입을 추정한다 - 일부 안드로이드 브라우저/파일관리자는 File.type이 ""로 온다. */
+const EXT_TO_MIME: Record<string, string> = {
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  png: "image/png",
+  webp: "image/webp",
+  heic: "image/heic",
+  heif: "image/heif",
+  pdf: "application/pdf",
+};
+
+function resolveContentType(file: File): string {
+  if (file.type) return file.type;
+  const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
+  return EXT_TO_MIME[ext] ?? "";
+}
+
+/**
+ * 업로드 실패 원인을 구분해서 보여준다. 예전에는 형식/크기 문제든 권한 문제든 전부
+ * "네트워크 오류가 발생했습니다"로 뭉개져, 사용자가 원인을 모른 채 같은 파일로 재시도했다.
+ */
+function describeUploadError(err: unknown): string {
+  const message = err instanceof Error ? err.message : "";
+  const lower = message.toLowerCase();
+  if (/content type|content-type|형식|allowed/.test(lower)) {
+    return "지원하지 않는 파일 형식입니다. JPG, PNG, HEIC, PDF 파일만 올릴 수 있습니다.";
+  }
+  if (/size|too large|크기/.test(lower)) {
+    return "파일 크기가 너무 큽니다(최대 30MB). 사진 크기를 줄여 다시 시도해 주세요.";
+  }
+  if (/권한|찾을 수 없|본인 확인/.test(message)) {
+    return message;
+  }
+  if (/abort|timeout|시간/.test(lower)) {
+    return "처리 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요.";
+  }
+  return "네트워크 오류가 발생했습니다. 연결 상태를 확인한 뒤 다시 시도해 주세요.";
+}
+
 function VerdictBanner({
   receipt,
   onReanalyze,
@@ -76,12 +126,15 @@ function VerdictBanner({
         )}
       </div>
       {receipt.verdictMessage && (
-        <p className="mt-2 text-neutral-700 dark:text-neutral-300">{receipt.verdictMessage}</p>
+        // 교통 부분인정 메시지처럼 "N번째 사진: ..." 여러 줄이 올 수 있어 줄바꿈을 살린다.
+        <p className="mt-2 whitespace-pre-line text-neutral-700 dark:text-neutral-300">
+          {receipt.verdictMessage}
+        </p>
       )}
       {receipt.verdictRegulationRef && (
         <p className="mt-2 text-[11px] text-neutral-400">근거: {receipt.verdictRegulationRef}</p>
       )}
-      {receipt.verdictFailedCheck === "ocr_unavailable" && (
+      {RETRYABLE_FAILED_CHECKS.has(receipt.verdictFailedCheck ?? "") && (
         <button
           type="button"
           onClick={() => onReanalyze(receipt.id)}
@@ -253,12 +306,22 @@ export default function ReceiptManager({
       // 올리면 실패한다.
       const blobs: { url: string; contentType: string }[] = [];
       for (const q of queue) {
+        // 일부 안드로이드 브라우저는 File.type이 빈 문자열이라 그대로 보내면 타입 검증에서
+        // 실패한다 - 확장자로 추정해 채워 넣는다.
+        const contentType = resolveContentType(q.file);
+        if (!contentType) {
+          setError(
+            `"${q.file.name}"의 파일 형식을 알 수 없습니다. JPG, PNG, HEIC, PDF 파일로 다시 선택해 주세요.`
+          );
+          setUploading(false);
+          return;
+        }
         const blob = await upload(`uploads/${tripId}/${category.toLowerCase()}/${q.file.name}`, q.file, {
           access: "public",
           handleUploadUrl: "/api/receipts/upload",
-          contentType: q.file.type,
+          contentType,
         });
-        blobs.push({ url: blob.url, contentType: q.file.type });
+        blobs.push({ url: blob.url, contentType });
       }
 
       const res = await fetch("/api/receipts", {
@@ -266,9 +329,14 @@ export default function ReceiptManager({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ tripId, category, transportMode, blobs }),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => null);
       if (!res.ok) {
-        setError(data.error ?? "업로드에 실패했습니다.");
+        setError(
+          data?.error ??
+            (res.status === 504
+              ? "처리 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요."
+              : "업로드에 실패했습니다. 잠시 후 다시 시도해 주세요.")
+        );
         setUploading(false);
         return;
       }
@@ -277,32 +345,58 @@ export default function ReceiptManager({
       setQueue([]);
       setUploading(false);
       router.refresh();
-    } catch {
-      setError("네트워크 오류가 발생했습니다.");
+    } catch (err) {
+      // 원인을 뭉개서 전부 "네트워크 오류"로 띄우면, 사용자는 재시도해야 할지 파일을 바꿔야 할지
+      // 알 수 없고 그때마다 앞쪽 사진만 Blob에 쌓인다.
+      setError(describeUploadError(err));
       setUploading(false);
     }
   }
 
   async function reanalyzeReceipt(id: string) {
     setReanalyzingId(id);
+    setError(null);
     try {
       const res = await fetch(`/api/receipts/${id}/reanalyze`, { method: "POST" });
-      const data = await res.json();
-      if (res.ok) {
+      const data = await res.json().catch(() => null);
+      if (res.ok && data?.receipt) {
         setReceipts((prev) => prev.map((r) => (r.id === id ? data.receipt : r)));
         router.refresh();
+      } else {
+        // 왜 안 됐는지 알려준다 - 예전에는 조용히 무시돼서 버튼만 원래대로 돌아왔다.
+        setError(
+          data?.error ??
+            (res.status === 504
+              ? "인식에 시간이 너무 오래 걸렸습니다. 잠시 후 다시 시도해 주세요."
+              : "다시 인식하지 못했습니다. 잠시 후 다시 시도해 주세요.")
+        );
       }
     } catch {
-      // 재시도 실패는 조용히 무시 - 배너의 버튼이 그대로 남아 다시 누를 수 있다.
+      setError("네트워크 오류로 다시 인식하지 못했습니다. 연결 상태를 확인해 주세요.");
     } finally {
       setReanalyzingId(null);
     }
   }
 
   async function removeReceipt(id: string) {
+    const previous = receipts;
     setReceipts((prev) => prev.filter((r) => r.id !== id));
     if (selectedId === id) setSelectedId(null);
-    await fetch(`/api/receipts?id=${id}`, { method: "DELETE" });
+    try {
+      const res = await fetch(`/api/receipts?id=${id}`, { method: "DELETE" });
+      if (!res.ok) {
+        // 서버가 거부했으면(권한 없음 등) 화면에서 지운 것을 되돌린다 - 지워진 것처럼 보이는데
+        // 실제로는 남아 있는 상태가 가장 나쁘다.
+        const data = await res.json().catch(() => null);
+        setReceipts(previous);
+        setError(data?.error ?? "영수증을 삭제하지 못했습니다.");
+        return;
+      }
+    } catch {
+      setReceipts(previous);
+      setError("네트워크 오류로 영수증을 삭제하지 못했습니다.");
+      return;
+    }
     router.refresh();
   }
 
@@ -317,6 +411,8 @@ export default function ReceiptManager({
       ? "왕복 등 결제가 여러 건이면 사진을 각각 추가해 주세요 - 사진별로 인식한 금액을 자동으로 합산합니다."
       : isBreakfast
       ? null
+      : category === "LODGING"
+      ? "여러 장이면 같은 영수증의 다음 페이지로 보고 합쳐서 인식합니다. 서로 다른 숙소·숙박 건은 한 번에 올리지 말고 건별로 따로 등록해 주세요."
       : "여러 장이면 같은 영수증의 다음 페이지로 보고 합쳐서 인식합니다.";
 
   return (
@@ -424,6 +520,9 @@ export default function ReceiptManager({
           </div>
         </div>
       )}
+
+      {/* 업로드 대기열이 비어 있을 때(삭제 실패 등)도 오류가 보이도록 별도로 한 번 더 표시한다. */}
+      {error && queue.length === 0 && <p className="px-1 text-[13px] text-red-500">{error}</p>}
 
       {receipts.length > 0 && (
         <div>

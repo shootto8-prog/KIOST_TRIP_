@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { parseYmd, INVALID_DATE_MESSAGE } from "@/lib/ymdDate";
 
 type StopInput = {
   type: "DEPARTURE" | "STOPOVER" | "ARRIVAL";
@@ -7,8 +8,12 @@ type StopInput = {
 };
 
 export async function POST(req: NextRequest) {
-  const body = await req.json();
-  const stops: StopInput[] = body.stops ?? [];
+  // 다른 라우트들과 마찬가지로 본문 파싱 실패는 500이 아니라 400으로 돌려준다.
+  const body = await req.json().catch(() => null);
+  if (!body || typeof body !== "object") {
+    return NextResponse.json({ error: "요청 형식이 올바르지 않습니다." }, { status: 400 });
+  }
+  const stops: StopInput[] = Array.isArray(body.stops) ? body.stops : [];
   const { startDate, endDate, ownerEmail } = body;
 
   const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -18,7 +23,13 @@ export async function POST(req: NextRequest) {
   if (!startDate || !endDate) {
     return NextResponse.json({ error: "출장기간(시작일/종료일)을 입력해 주세요." }, { status: 400 });
   }
-  if (new Date(endDate) < new Date(startDate)) {
+  // "2026-13-01" 같은 값은 예전에 Invalid Date로 Prisma까지 흘러가 500이 됐다.
+  const parsedStart = parseYmd(startDate);
+  const parsedEnd = parseYmd(endDate);
+  if (!parsedStart || !parsedEnd) {
+    return NextResponse.json({ error: INVALID_DATE_MESSAGE }, { status: 400 });
+  }
+  if (parsedEnd < parsedStart) {
     return NextResponse.json({ error: "종료일이 시작일보다 빠를 수 없습니다." }, { status: 400 });
   }
   if (stops.length < 2) {
@@ -39,8 +50,8 @@ export async function POST(req: NextRequest) {
   const trip = await prisma.trip.create({
     data: {
       ownerEmail: ownerEmail.trim(),
-      startDate: new Date(startDate),
-      endDate: new Date(endDate),
+      startDate: parsedStart,
+      endDate: parsedEnd,
       stops: {
         create: stops.map((s, idx) => ({
           type: s.type,
@@ -55,10 +66,6 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({ trip });
 }
 
-export async function GET() {
-  const trips = await prisma.trip.findMany({
-    orderBy: { createdAt: "desc" },
-    include: { stops: { orderBy: { order: "asc" } } },
-  });
-  return NextResponse.json({ trips });
-}
+// GET /api/trips는 삭제했다. 앱 어디에서도 호출하지 않는데(홈 화면은 서버 컴포넌트에서 Prisma를
+// 직접 쓴다) 인증 없이 전 사용자의 출장 목록과 실제 이메일 주소를 그대로 반환하고 있었다.
+// (2026-08-04 결정사항 9)

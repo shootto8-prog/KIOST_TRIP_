@@ -2,10 +2,23 @@
 
 import { useRef, useState } from "react";
 import { IconCalendar } from "./icons";
+import { isValidYmdParts } from "@/lib/ymdDate";
 
 function parse(value: string) {
   const m = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   return m ? { y: m[1], m: m[2], d: m[3] } : { y: "", m: "", d: "" };
+}
+
+type Parts = { y: string; m: string; d: string };
+
+/** 년/월/일이 다 채워졌는지 (자릿수만 본다 - 유효성은 별도로 확인). */
+function isComplete(p: Parts): boolean {
+  return p.y.length === 4 && p.m.length > 0 && p.d.length > 0;
+}
+
+/** "2026-13-01"(13월), "2026-02-30"(2월 30일) 같은 값은 서버에서 Invalid Date로 500이 났었다. */
+function isValid(p: Parts): boolean {
+  return isComplete(p) && isValidYmdParts(Number(p.y), Number(p.m), Number(p.d));
 }
 
 /**
@@ -31,7 +44,8 @@ export default function DateYMDInput({
     const digits = raw.replace(/\D/g, "").slice(0, maxLen);
     const next = { ...parts, [part]: digits };
     setParts(next);
-    if (next.y.length === 4 && next.m.length > 0 && next.d.length > 0) {
+    // 달력에 없는 날짜(13월, 2월 30일 등)는 값을 비워 상위 폼이 제출을 막게 한다.
+    if (isValid(next)) {
       onChange(`${next.y}-${next.m.padStart(2, "0")}-${next.d.padStart(2, "0")}`);
     } else {
       onChange("");
@@ -60,11 +74,13 @@ export default function DateYMDInput({
     }
   }
 
-  const inputClass =
-    "rounded-lg bg-transparent px-1 py-2 text-center text-[14px] text-neutral-900 outline-none dark:text-neutral-100";
+  const invalid = isComplete(parts) && !isValid(parts);
+  const inputClass = `rounded-lg bg-transparent px-1 py-2 text-center text-[14px] outline-none ${
+    invalid ? "text-red-500" : "text-neutral-900 dark:text-neutral-100"
+  }`;
 
   return (
-    <div className="flex shrink-0 items-center gap-1">
+    <div className="flex shrink-0 flex-wrap items-center gap-1">
       <input
         type="text"
         inputMode="numeric"
@@ -110,6 +126,9 @@ export default function DateYMDInput({
         aria-hidden="true"
         className="sr-only"
       />
+      {invalid && (
+        <p className="w-full text-[12px] text-red-500">날짜를 확인해 주세요 (없는 날짜입니다).</p>
+      )}
     </div>
   );
 }

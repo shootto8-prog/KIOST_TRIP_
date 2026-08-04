@@ -1,6 +1,13 @@
 export type ReceiptHints = {
   amountGuess: number | null;
-  dateGuess: string | null; // ISO 8601, 로컬 시각 기준(타임존 없음)
+  /**
+   * amountGuess가 "합계/총액" 같은 금액 키워드가 있는 줄에서 나온 값이 아니라,
+   * 전체 텍스트에서 가장 큰 숫자를 집은 폴백 추정값인지. true면 사업자등록번호 뒷자리·카드
+   * 승인번호 등이 잡혔을 수 있어 자동 판정에 그대로 쓰면 안 된다.
+   */
+  amountIsEstimate: boolean;
+  /** "YYYY-MM-DDTHH:MM:SS" (타임존 표시 없음, 항상 한국 현지시각) - src/lib/kst.ts로 해석해야 함 */
+  dateGuess: string | null;
   merchantGuess: string | null;
 };
 
@@ -18,6 +25,7 @@ export function extractReceiptHints(rawText: string): ReceiptHints {
     .filter(Boolean);
 
   let amountGuess: number | null = null;
+  let amountIsEstimate = false;
   for (const line of lines) {
     if (AMOUNT_KEYWORDS.some((kw) => line.toLowerCase().includes(kw.toLowerCase()))) {
       const nums = extractNumbers(line);
@@ -29,7 +37,11 @@ export function extractReceiptHints(rawText: string): ReceiptHints {
   }
   if (amountGuess === null) {
     const allNums = extractNumbers(rawText);
-    if (allNums.length) amountGuess = Math.max(...allNums);
+    if (allNums.length) {
+      amountGuess = Math.max(...allNums);
+      // 금액 키워드 줄을 못 찾아 "가장 큰 숫자"로 때운 값이다 - 추정값으로 표시해 둔다.
+      amountIsEstimate = true;
+    }
   }
 
   let dateGuess: string | null = null;
@@ -54,7 +66,7 @@ export function extractReceiptHints(rawText: string): ReceiptHints {
         !/페이지\s*\d+/.test(l)
     ) ?? null;
 
-  return { amountGuess, dateGuess, merchantGuess };
+  return { amountGuess, amountIsEstimate, dateGuess, merchantGuess };
 }
 
 function extractNumbers(text: string): number[] {

@@ -2,11 +2,20 @@ const OPENROUTER_ENDPOINT = "https://openrouter.ai/api/v1/chat/completions";
 
 export class ReceiptOcrError extends Error {}
 
+/**
+ * OpenRouter로 보낼 data URL의 이미지 타입. HEIC/HEIF는 여기 없다 - 멀티모달 모델이 디코딩하지
+ * 못하므로, 호출부(POST /api/receipts, reanalyze)에서 imageConvert.ts로 JPEG 변환을 마친 뒤
+ * 넘겨야 한다. 혹시 변환을 빠뜨리면 runReceiptOcr가 아래에서 명시적으로 거부한다.
+ */
 function extFromMime(mime: string): string {
   if (mime === "image/png") return "png";
   if (mime === "image/webp") return "webp";
-  if (mime === "image/heic" || mime === "image/heif") return "heic";
   return "jpeg";
+}
+
+function isUnsupportedOcrMime(mime: string): boolean {
+  const m = mime.toLowerCase();
+  return m === "image/heic" || m === "image/heif";
 }
 
 function buildPrompt(pageCount: number): string {
@@ -100,33 +109,54 @@ function splitSections(content: string): { rawText: string | null; structured: S
   return { rawText: cleanedRawText, structured };
 }
 
+/**
+ * 무료 모델이 응답을 주지 않고 연결만 붙잡고 있으면 요청이 무한 대기하다가 Vercel이 함수를
+ * 강제 종료해, 프론트에는 원인 불명의 "네트워크 오류"만 남고 Blob 파일은 고아로 남았다.
+ * 호출 하나하나에 상한을 두고, 전체 재시도 체인에도 예산을 둬서 라우트의 maxDuration 안에서 끝낸다.
+ */
+const MODEL_CALL_TIMEOUT_MS = 20_000;
+const OCR_TOTAL_BUDGET_MS = 45_000;
+
+export class ReceiptOcrTimeoutError extends ReceiptOcrError {}
+
 async function callModel(model: string, dataUrls: string[]): Promise<string> {
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) {
     throw new ReceiptOcrError("OPENROUTER_API_KEY가 설정되지 않았습니다.");
   }
 
-  const res = await fetch(OPENROUTER_ENDPOINT, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model,
-      temperature: 0,
-      max_tokens: 1500,
-      messages: [
-        {
-          role: "user",
-          content: [
-            { type: "text", text: buildPrompt(dataUrls.length) },
-            ...dataUrls.map((url) => ({ type: "image_url", image_url: { url } })),
-          ],
-        },
-      ],
-    }),
-  });
+  let res: Response;
+  try {
+    res = await fetch(OPENROUTER_ENDPOINT, {
+      signal: AbortSignal.timeout(MODEL_CALL_TIMEOUT_MS),
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model,
+        temperature: 0,
+        max_tokens: 1500,
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "text", text: buildPrompt(dataUrls.length) },
+              ...dataUrls.map((url) => ({ type: "image_url", image_url: { url } })),
+            ],
+          },
+        ],
+      }),
+    });
+  } catch (err) {
+    if (err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError")) {
+      throw new ReceiptOcrTimeoutError(
+        `OpenRouter API(${model}) 응답이 ${MODEL_CALL_TIMEOUT_MS / 1000}초 안에 오지 않아 중단했습니다.`
+      );
+    }
+    throw new ReceiptOcrError(`OpenRouter API(${model}) 호출 실패: ${(err as Error).message}`);
+  }
 
   if (!res.ok) {
     const bodyText = await res.text().catch(() => "");
@@ -155,16 +185,26 @@ const RETRY_DELAY_MS = 2500;
  * 무료 티어 모델이 업스트림 혼잡(429)이나 일시적 오류(5xx 등)로 실패하는 경우가 잦아,
  * 같은 모델로 짧은 대기 후 한 번 더 시도한다. 순간적인 혼잡은 몇 초 뒤 풀리는 경우가 많다.
  */
-async function callModelWithRetry(model: string, dataUrls: string[], retries = 1): Promise<string> {
+async function callModelWithRetry(
+  model: string,
+  dataUrls: string[],
+  deadline: number,
+  retries = 1
+): Promise<string> {
   let lastErr: unknown;
   for (let attempt = 0; attempt <= retries; attempt++) {
+    if (Date.now() >= deadline) {
+      throw lastErr ?? new ReceiptOcrTimeoutError("OCR 전체 제한 시간을 초과했습니다.");
+    }
     try {
       return await callModel(model, dataUrls);
     } catch (err) {
       lastErr = err;
-      if (attempt < retries) {
+      if (attempt < retries && Date.now() + RETRY_DELAY_MS < deadline) {
         console.error(`Receipt OCR model(${model}) attempt ${attempt + 1} failed, retrying in ${RETRY_DELAY_MS}ms:`, err);
         await sleep(RETRY_DELAY_MS);
+      } else {
+        break;
       }
     }
   }
@@ -190,6 +230,14 @@ export async function runReceiptOcr(images: ReceiptImage[]): Promise<ReceiptOcrR
   if (images.length === 0) {
     throw new ReceiptOcrError("OCR에 전달할 이미지가 없습니다.");
   }
+  const unsupported = images.find((img) => isUnsupportedOcrMime(img.mimeType));
+  if (unsupported) {
+    throw new ReceiptOcrError(
+      `OCR에 지원되지 않는 이미지 형식입니다(${unsupported.mimeType}). JPEG로 변환한 뒤 넘겨주세요.`
+    );
+  }
+
+  const deadline = Date.now() + OCR_TOTAL_BUDGET_MS;
   const primaryModel = process.env.LLM_MODEL || "google/gemma-4-31b-it:free";
   const dataUrls = images.map(({ buffer, mimeType }) => {
     const ext = extFromMime(mimeType);
@@ -199,13 +247,13 @@ export async function runReceiptOcr(images: ReceiptImage[]): Promise<ReceiptOcrR
   let content: string;
   let usedModel: string;
   try {
-    content = await callModelWithRetry(primaryModel, dataUrls);
+    content = await callModelWithRetry(primaryModel, dataUrls, deadline);
     usedModel = primaryModel;
   } catch (primaryErr) {
     if (primaryModel === FALLBACK_MODEL) throw primaryErr;
     console.error(`Receipt OCR primary model(${primaryModel}) failed after retry, falling back:`, primaryErr);
     try {
-      content = await callModelWithRetry(FALLBACK_MODEL, dataUrls);
+      content = await callModelWithRetry(FALLBACK_MODEL, dataUrls, deadline);
       usedModel = FALLBACK_MODEL;
     } catch (fallbackErr) {
       throw new ReceiptOcrError(

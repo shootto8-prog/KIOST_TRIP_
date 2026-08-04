@@ -90,7 +90,7 @@ export default function TripForm({
     setError(null);
 
     if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) || !/^\d{4}-\d{2}-\d{2}$/.test(endDate)) {
-      setError("출장 시작일과 종료일을 연도(4자리)까지 포함해 입력해 주세요.");
+      setError("출장 시작일과 종료일을 연도(4자리)까지 포함해, 실제로 있는 날짜로 입력해 주세요.");
       return;
     }
     if (endDate < startDate) {

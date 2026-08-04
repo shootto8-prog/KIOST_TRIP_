@@ -1,7 +1,12 @@
 import rules from "../../rules/domestic_travel_rules.json";
 import { getKstParts } from "./kst";
 
-export type VerdictStatus = "APPROVED" | "PARTIAL" | "REJECTED";
+/**
+ * PENDING은 "자동 판정을 보류하고 사람이 확인해야 한다"는 뜻이다 - 금액을 키워드 없이
+ * 추정값으로만 읽어낸 경우처럼, 그 값을 그대로 정산에 반영하면 위험한 상황에 쓴다.
+ * (DB/화면의 VerdictStatus에는 이미 PENDING이 있어 별도 마이그레이션이 필요 없다.)
+ */
+export type VerdictStatus = "PENDING" | "APPROVED" | "PARTIAL" | "REJECTED";
 
 export type VerificationResult = {
   status: VerdictStatus;
@@ -81,6 +86,49 @@ function rejected(message: string, failedCheckId: string, regulationRef: string)
   return { status: "REJECTED", acceptedAmount: null, message, failedCheckId, regulationRef };
 }
 
+/**
+ * 금액을 "합계/총액" 같은 키워드 없이 전체 텍스트에서 가장 큰 숫자로만 추정한 경우
+ * (receiptHints.ts의 폴백 경로), 사업자등록번호 뒷자리나 카드 승인번호가 금액으로 잡힐 수 있다.
+ * 이런 값은 자동 판정에 그대로 쓰지 않고 "확인 필요"(PENDING)로 남겨 사람이 검토하게 한다.
+ */
+export const AMOUNT_ESTIMATED_CHECK_ID = "amount_estimated";
+const AMOUNT_ESTIMATED_MESSAGE =
+  "금액을 정확히 인식하지 못해 추정값으로 읽었습니다. 자동 정산에 반영하지 않으니 확인 후 다시 인식하거나 더 선명한 사진으로 등록해 주세요.";
+
+function needsAmountReview(regulationRef: string): VerificationResult {
+  return {
+    status: "PENDING",
+    acceptedAmount: null,
+    message: AMOUNT_ESTIMATED_MESSAGE,
+    failedCheckId: AMOUNT_ESTIMATED_CHECK_ID,
+    regulationRef,
+  };
+}
+
+/** 영수증 1장당 하나만 찍히는 사업자등록번호(NNN-NN-NNNNN)가 몇 종류인지 센다. */
+function distinctBusinessNumberCount(text: string): number {
+  return new Set(text.match(/\d{3}-\d{2}-\d{5}/g) ?? []).size;
+}
+
+/**
+ * 영수증 텍스트에 등장하는 "달력 날짜"가 몇 종류인지 센다 (체크인/거래일자/거래일시 등).
+ * "2026-07-21", "2026.07.21", "2026/07/21", "2026년 7월 21일"을 모두 같은 하루로 묶는다.
+ * 연도를 19xx/20xx로 못박아 사업자등록번호·전화번호·승인번호가 날짜로 오인되지 않게 한다.
+ */
+function distinctCalendarDates(text: string): Set<string> {
+  const found = new Set<string>();
+  const re = /(19|20)(\d{2})\s*(?:[-./]|년)\s*(\d{1,2})\s*(?:[-./]|월)\s*(\d{1,2})(?:\s*일)?/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    const year = Number(`${m[1]}${m[2]}`);
+    const month = Number(m[3]);
+    const day = Number(m[4]);
+    if (month < 1 || month > 12 || day < 1 || day > 31) continue;
+    found.add(`${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`);
+  }
+  return found;
+}
+
 const TRIP_DATE_MISMATCH_MESSAGE = rules.common.trip_date_mismatch.on_fail.message;
 const FLAT_RATE_MESSAGE = "정액정산 대상으로 별도 금액 확인 없이 인정됩니다.";
 
@@ -103,6 +151,8 @@ export type BreakfastInput = {
   tripStartDate: string; // ISO
   tripEndDate: string; // ISO
   tripLocations: string[]; // 출발지+경유지+도착지 전체
+  /** 금액이 "합계/총액" 키워드 없이 추정된 값인지 (true면 자동 판정 대신 확인 필요로 남긴다). */
+  ocrAmountIsEstimate?: boolean;
 };
 
 export function verifyBreakfast(input: BreakfastInput): VerificationResult {
@@ -160,7 +210,12 @@ export function verifyBreakfast(input: BreakfastInput): VerificationResult {
     return rejected(getCheckMessage(r.checks, "multiple_receipts"), "multiple_receipts", regulationRef);
   }
 
-  // 순서7: 금액 상한 (부분인정)
+  // 순서7: 금액이 추정값이면 자동 판정 보류 (확인 필요)
+  if (input.ocrAmountIsEstimate) {
+    return needsAmountReview(regulationRef);
+  }
+
+  // 순서8: 금액 상한 (부분인정)
   if (input.ocrAmountGuess > r.amount_cap_krw) {
     return {
       status: "PARTIAL",
@@ -180,6 +235,15 @@ export function verifyBreakfast(input: BreakfastInput): VerificationResult {
   };
 }
 
+/** 교통 영수증 사진 1장의 OCR 결과 (왕복처럼 사진마다 별개의 결제 건일 수 있다). */
+export type TransportPhotoOcr = {
+  ocrStatus: "DONE" | "FAILED";
+  ocrText: string | null;
+  ocrAmountGuess: number | null;
+  /** 금액이 "합계/총액" 키워드 없이 추정된 값인지. */
+  ocrAmountIsEstimate?: boolean;
+};
+
 export type TransportInput = {
   mode: "SHIP" | "AIR" | "RAIL" | "PRIVATE_CAR" | "BUS";
   ocrStatus: "DONE" | "FAILED";
@@ -189,12 +253,91 @@ export type TransportInput = {
   tripStartDate: string;
   tripEndDate: string;
   tripLocations: string[]; // 출발지+경유지+도착지 전체
+  ocrAmountIsEstimate?: boolean;
+  /**
+   * 사진별 OCR 결과. 넘기면 사진 하나하나를 독립된 결제 증빙으로 보고 검사(업체유형/좌석등급/
+   * 장소)를 각각 수행한 뒤, 전부 통과한 사진의 금액만 합산한다. 생략하면 위의 단일(합쳐진)
+   * 결과 하나만 검사하는 기존 동작과 동일하다.
+   */
+  photos?: TransportPhotoOcr[];
 };
+
+/** 여러 장 중 일부만 인정된 경우의 판정 ID - 화면에서 "일부만 합산됨" 경고/재시도 버튼을 띄우는 데 쓴다. */
+export const PARTIAL_OCR_FAILURE_CHECK_ID = "partial_ocr_failure";
+export const PARTIAL_PHOTO_EXCLUDED_CHECK_ID = "partial_photo_excluded";
+
+type PhotoOutcome =
+  | { kind: "accepted"; amount: number }
+  | { kind: "ocr_failed" }
+  | { kind: "estimated" }
+  | { kind: "check_failed"; failedCheckId: string; message: string };
+
+type ModeRules = typeof rules.transport.ship | typeof rules.transport.air;
+
+/**
+ * 사진 1장에 대해 교통 검사(업체유형 -> 좌석등급 -> 장소)를 수행한다.
+ * 예전에는 모든 사진의 텍스트를 이어붙여 딱 한 번만 검사해서, 사진1이 항공권이면 사진2가
+ * 호텔 영수증이어도 그 금액까지 교통비로 합산되는 문제가 있었다.
+ */
+function checkTransportPhoto(
+  photo: TransportPhotoOcr,
+  modeRules: ModeRules,
+  tripLocations: string[]
+): PhotoOutcome {
+  if (photo.ocrStatus !== "DONE" || !photo.ocrText || photo.ocrAmountGuess === null) {
+    return { kind: "ocr_failed" };
+  }
+  // 순서1: 업체유형 확인 - 선박/항공 관련 영수증이 맞는지 (숙박/조식 영수증 오인식 방지)
+  if (!containsAny(photo.ocrText, modeRules.required_keywords)) {
+    return {
+      kind: "check_failed",
+      failedCheckId: "not_transport_receipt",
+      message: getCheckMessage(modeRules.checks, "not_transport_receipt"),
+    };
+  }
+  // 순서2: 좌석 등급 확인
+  if (containsAny(photo.ocrText, modeRules.disallowed_classes)) {
+    return {
+      kind: "check_failed",
+      failedCheckId: "class_restriction",
+      message: getCheckMessage(modeRules.checks, "class_restriction"),
+    };
+  }
+  // 순서3: 장소 일치 확인 (출장경로 전체 중 하나라도 영수증 텍스트에 포함되면 통과)
+  if (!isLocationMatch(photo.ocrText, tripLocations)) {
+    return {
+      kind: "check_failed",
+      failedCheckId: "location_mismatch",
+      message: getCheckMessage(modeRules.checks, "location_mismatch"),
+    };
+  }
+  // 순서4: 금액이 추정값이면 합산에서 제외 (사업자번호/승인번호를 금액으로 잡을 수 있음)
+  if (photo.ocrAmountIsEstimate) {
+    return { kind: "estimated" };
+  }
+  return { kind: "accepted", amount: photo.ocrAmountGuess };
+}
+
+function describeOutcome(outcome: PhotoOutcome): string {
+  switch (outcome.kind) {
+    case "ocr_failed":
+      return "내용을 인식하지 못했습니다";
+    case "estimated":
+      return "금액을 추정값으로만 읽어 합산에서 제외했습니다";
+    case "check_failed":
+      return outcome.message;
+    default:
+      return "";
+  }
+}
 
 /**
  * 선박/항공만 OCR로 실제 판정한다. 고속철도/승용(렌트,동승)/버스는 정액정산 대상이라
  * analyzeReceipt.ts에서 OCR 자체를 건너뛰고 바로 승인 처리하지만, 혹시 이 함수가 직접
  * 호출되더라도 방어적으로 같은 결과를 내도록 여기서도 분기한다.
+ *
+ * 날짜(결제일) 검사는 하지 않는다 - 항공/선박은 출장 전에 미리 예매·결제하는 것이 정상이라
+ * 결제일을 출장기간과 비교하면 거의 모든 정상 영수증이 반려됐다. (2026-08-04 결정사항 1)
  */
 export function verifyTransport(input: TransportInput): VerificationResult {
   const regulationRef = rules.transport.regulation_ref;
@@ -202,41 +345,59 @@ export function verifyTransport(input: TransportInput): VerificationResult {
     return { status: "APPROVED", acceptedAmount: null, message: FLAT_RATE_MESSAGE, failedCheckId: null, regulationRef };
   }
 
-  const modeRules = input.mode === "SHIP" ? rules.transport.ship : rules.transport.air;
+  const modeRules: ModeRules = input.mode === "SHIP" ? rules.transport.ship : rules.transport.air;
 
-  if (input.ocrStatus !== "DONE" || !input.ocrText || input.ocrAmountGuess === null) {
+  const photos: TransportPhotoOcr[] =
+    input.photos && input.photos.length > 0
+      ? input.photos
+      : [
+          {
+            ocrStatus: input.ocrStatus,
+            ocrText: input.ocrText,
+            ocrAmountGuess: input.ocrAmountGuess,
+            ocrAmountIsEstimate: input.ocrAmountIsEstimate,
+          },
+        ];
+
+  const outcomes = photos.map((p) => checkTransportPhoto(p, modeRules, input.tripLocations));
+  const accepted = outcomes.filter((o): o is { kind: "accepted"; amount: number } => o.kind === "accepted");
+  const failures = outcomes
+    .map((o, i) => ({ outcome: o, index: i }))
+    .filter((x) => x.outcome.kind !== "accepted");
+
+  if (accepted.length === 0) {
+    const firstCheckFailure = failures.find((f) => f.outcome.kind === "check_failed");
+    if (firstCheckFailure && firstCheckFailure.outcome.kind === "check_failed") {
+      const message =
+        photos.length > 1
+          ? failures.map((f) => `${f.index + 1}번째 사진: ${describeOutcome(f.outcome)}`).join("\n")
+          : firstCheckFailure.outcome.message;
+      return rejected(message, firstCheckFailure.outcome.failedCheckId, regulationRef);
+    }
+    if (failures.some((f) => f.outcome.kind === "estimated")) {
+      return needsAmountReview(regulationRef);
+    }
     return rejected(OCR_UNAVAILABLE_MESSAGE, "ocr_unavailable", regulationRef);
   }
 
-  // 순서1: 업체유형 확인 - 선박/항공 관련 영수증이 맞는지 (숙박/조식 영수증 오인식 방지)
-  if (!containsAny(input.ocrText, modeRules.required_keywords)) {
-    return rejected(
-      getCheckMessage(modeRules.checks, "not_transport_receipt"),
-      "not_transport_receipt",
-      regulationRef
-    );
+  const acceptedAmount = accepted.reduce((sum, o) => sum + o.amount, 0);
+
+  if (failures.length === 0) {
+    return { status: "APPROVED", acceptedAmount, message: null, failedCheckId: null, regulationRef };
   }
 
-  // 순서2: 좌석 등급 확인
-  if (containsAny(input.ocrText, modeRules.disallowed_classes)) {
-    return rejected(getCheckMessage(modeRules.checks, "class_restriction"), "class_restriction", regulationRef);
-  }
-
-  // 순서3: 장소 일치 확인 (출장경로 전체 중 하나라도 영수증 텍스트에 포함되면 통과)
-  if (!isLocationMatch(input.ocrText, input.tripLocations)) {
-    return rejected(getCheckMessage(modeRules.checks, "location_mismatch"), "location_mismatch", regulationRef);
-  }
-
-  // 순서4: 출장기간 날짜 확인 (공통 규칙)
-  if (!isWithinTripDateRange(input.ocrDateGuess, input.tripStartDate, input.tripEndDate)) {
-    return rejected(TRIP_DATE_MISMATCH_MESSAGE, "trip_date_mismatch", regulationRef);
-  }
-
+  // 일부 사진만 인정된 경우: 조용히 성공처럼 보이지 않도록 부분인정으로 표시하고,
+  // 어떤 사진이 왜 빠졌는지 알려준다.
+  const anyOcrFailed = failures.some((f) => f.outcome.kind === "ocr_failed");
+  const detail = failures.map((f) => `${f.index + 1}번째 사진: ${describeOutcome(f.outcome)}`).join("\n");
+  const guidance = anyOcrFailed
+    ? "\n인식하지 못한 사진이 있어 합계에서 빠졌습니다. '다시 인식 시도'를 눌러 주세요."
+    : "\n위 사진은 합계에서 제외했습니다. 잘못 첨부한 사진이면 삭제 후 다시 등록해 주세요.";
   return {
-    status: "APPROVED",
-    acceptedAmount: input.ocrAmountGuess,
-    message: null,
-    failedCheckId: null,
+    status: "PARTIAL",
+    acceptedAmount,
+    message: `사진 ${photos.length}장 중 ${accepted.length}장만 인정되었습니다.\n${detail}${guidance}`,
+    failedCheckId: anyOcrFailed ? PARTIAL_OCR_FAILURE_CHECK_ID : PARTIAL_PHOTO_EXCLUDED_CHECK_ID,
     regulationRef,
   };
 }
@@ -251,7 +412,18 @@ export type LodgingInput = {
   tripLocations: string[]; // 도착지 + 경유지 (출발지 제외)
   /** 출장기간(출발~복귀)으로 자동 계산한 박수. 2박/3박이면 총액을 그만큼 나눠 1박당 상한을 적용한다. */
   nights: number;
+  /** 금액이 "합계/총액" 키워드 없이 추정된 값인지. */
+  ocrAmountIsEstimate?: boolean;
+  /**
+   * 같은 출장의 "다른" 숙박 영수증들이 이미 인정받은 금액의 합계(이 영수증 자신은 제외).
+   * 출장 전체 상한에서 이 값을 뺀 "남은 한도"까지만 이번 영수증을 인정한다 - 영수증을 여러 건으로
+   * 나눠 올려 출장 단위 상한을 우회하는 것을 막기 위함. (2026-08-04 결정사항 8)
+   */
+  alreadyAcceptedInTrip?: number;
 };
+
+export const TRIP_CAP_EXHAUSTED_CHECK_ID = "trip_cap_exhausted";
+export const MULTIPLE_DOCUMENTS_CHECK_ID = "multiple_documents";
 
 export function verifyLodging(input: LodgingInput): VerificationResult {
   const r = rules.lodging;
@@ -267,29 +439,63 @@ export function verifyLodging(input: LodgingInput): VerificationResult {
     return rejected(getCheckMessage(r.checks, "not_a_receipt"), "not_a_receipt", regulationRef);
   }
 
-  // 순서2: 출장기간 날짜 확인 (공통 규칙)
+  // 순서2: 한 건의 업로드에 서로 다른 여러 문서가 섞였는지 (2단계 신호)
+  // 사업자등록번호 개수만으로 판단하면 정상적인 단일 OTA 예약(호텔 + 결제대행사 + 카드사)도
+  // 2~3개가 나와 오반려된다. 그래서 "사업자번호가 여러 개" 그리고 "서로 다른 날짜가 여러 개"가
+  // 동시에 잡힐 때만 여러 건이 섞인 것으로 본다. (2026-08-04 결정사항 7)
+  const bizNumberCount = distinctBusinessNumberCount(input.ocrText);
+  const dateCount = distinctCalendarDates(input.ocrText).size;
+  if (bizNumberCount > r.max_business_numbers && dateCount > r.max_distinct_dates) {
+    return rejected(
+      getCheckMessage(r.checks, MULTIPLE_DOCUMENTS_CHECK_ID),
+      MULTIPLE_DOCUMENTS_CHECK_ID,
+      regulationRef
+    );
+  }
+
+  // 순서3: 출장기간 날짜 확인 (공통 규칙)
   if (!isWithinTripDateRange(input.ocrDateGuess, input.tripStartDate, input.tripEndDate)) {
     return rejected(TRIP_DATE_MISMATCH_MESSAGE, "trip_date_mismatch", regulationRef);
   }
 
-  // 순서3: 장소 일치 확인 (도착지/경유지 중 하나라도 영수증 텍스트에 포함되면 통과)
+  // 순서4: 장소 일치 확인 (도착지/경유지 중 하나라도 영수증 텍스트에 포함되면 통과)
   if (!isLocationMatch(input.ocrText, input.tripLocations)) {
     return rejected(getCheckMessage(r.checks, "location_mismatch"), "location_mismatch", regulationRef);
   }
 
-  // 순서4: 금액 상한 (부분인정) - 2박/3박이면 1박당 상한 × 박수로 늘어난다
   if (input.ocrAmountGuess === null) {
     return rejected(getCheckMessage(r.checks, "not_a_receipt"), "not_a_receipt", regulationRef);
   }
+
+  // 순서5: 금액이 추정값이면 자동 판정 보류 (확인 필요)
+  if (input.ocrAmountIsEstimate) {
+    return needsAmountReview(regulationRef);
+  }
+
+  // 순서6: 금액 상한 (부분인정) - 2박/3박이면 1박당 상한 × 박수로 늘어나고,
+  // 같은 출장의 다른 숙박 영수증이 이미 쓴 만큼은 빼고 남은 한도까지만 인정한다.
   const capForStay = r.daily_cap_krw * nights;
-  if (input.ocrAmountGuess > capForStay) {
+  const alreadyAccepted = Math.max(0, input.alreadyAcceptedInTrip ?? 0);
+  const remainingCap = capForStay - alreadyAccepted;
+
+  if (remainingCap <= 0) {
+    return rejected(
+      `이미 숙박비 상한에 도달했습니다 (${nights}박 총 상한 ${capForStay.toLocaleString("ko-KR")}원, 이미 인정된 금액 ${alreadyAccepted.toLocaleString("ko-KR")}원). 추가 숙박비는 정산되지 않습니다.`,
+      TRIP_CAP_EXHAUSTED_CHECK_ID,
+      regulationRef
+    );
+  }
+
+  if (input.ocrAmountGuess > remainingCap) {
     const cappedMessage =
-      nights > 1
+      alreadyAccepted > 0
+        ? `이 출장에서 이미 ${alreadyAccepted.toLocaleString("ko-KR")}원이 인정되어, 남은 한도 ${remainingCap.toLocaleString("ko-KR")}원까지만 정산됨을 안내드립니다 (${nights}박 총 상한 ${capForStay.toLocaleString("ko-KR")}원)`
+        : nights > 1
         ? `1박당 최대 ${r.daily_cap_krw.toLocaleString("ko-KR")}원 기준, ${nights}박 총액 최대 ${capForStay.toLocaleString("ko-KR")}원까지만 정산됨을 안내드립니다`
         : getCheckMessage(r.checks, "amount_cap");
     return {
       status: "PARTIAL",
-      acceptedAmount: capForStay,
+      acceptedAmount: remainingCap,
       message: cappedMessage,
       failedCheckId: "amount_cap",
       regulationRef,

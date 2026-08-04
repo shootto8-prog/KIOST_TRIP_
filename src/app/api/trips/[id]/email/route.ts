@@ -7,6 +7,9 @@ import { formatDate, CATEGORY_LABEL } from "@/lib/format";
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const SETTLED_CATEGORIES = ["BREAKFAST", "TRANSPORT", "LODGING"] as const;
 
+// 정산서 PDF 조립(사진 다운로드 + 리사이즈) 후 SMTP 발송까지 하므로 시간이 걸릴 수 있다.
+export const maxDuration = 60;
+
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
 
