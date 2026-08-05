@@ -19,10 +19,10 @@ export default function CategoryCard({
   return (
     <Link
       href={href}
-      className="flex aspect-square flex-col items-center justify-center gap-2 rounded-3xl border border-black/5 bg-white/80 p-4 text-center shadow-sm transition active:scale-[0.97] dark:border-white/10 dark:bg-white/[0.04]"
+      className="shadow-soft flex aspect-square flex-col items-center justify-center gap-2 rounded-[28px] border border-black/5 bg-white/80 p-4 text-center transition active:scale-[0.97] dark:border-white/10 dark:bg-white/[0.04]"
     >
       <span
-        className={`flex size-12 items-center justify-center rounded-2xl ${accent}`}
+        className={`flex size-14 items-center justify-center rounded-full ring-1 ring-inset ring-black/5 dark:ring-white/10 ${accent}`}
       >
         {icon}
       </span>

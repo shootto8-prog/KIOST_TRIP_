@@ -159,29 +159,32 @@ export function verifyBreakfast(input: BreakfastInput): VerificationResult {
   const r = rules.breakfast;
   const regulationRef = r.regulation_ref;
 
-  // 순서1: 품목 확인
-  if (input.ocrStatus !== "DONE" || !input.ocrText || input.ocrText.trim().length < 5) {
-    return rejected(
-      input.ocrStatus !== "DONE" ? OCR_UNAVAILABLE_MESSAGE : getCheckMessage(r.checks, "item_unrecognized"),
-      "item_unrecognized",
-      regulationRef
-    );
+  // 순서1: OCR 인식 자체가 안 된 경우 - "다시 인식 시도"로 나아질 수 있으므로 품목 미인식과
+  // failedCheckId를 분리한다(둘 다 "item_unrecognized"로 묶으면 RETRYABLE_FAILED_CHECKS에
+  // 안 걸려 재시도 버튼이 안 뜬다 - 실사용 중 발견된 버그).
+  if (input.ocrStatus !== "DONE" || !input.ocrText) {
+    return rejected(OCR_UNAVAILABLE_MESSAGE, "ocr_unavailable", regulationRef);
+  }
+
+  // 순서2: 품목 확인
+  if (input.ocrText.trim().length < 5) {
+    return rejected(getCheckMessage(r.checks, "item_unrecognized"), "item_unrecognized", regulationRef);
   }
   if (input.ocrAmountGuess === null) {
     return rejected(getCheckMessage(r.checks, "item_unrecognized"), "item_unrecognized", regulationRef);
   }
 
-  // 순서2: 출장기간 날짜 확인 (공통 규칙) - 출장기간이 아닌 날짜의 영수증 반영 방지
+  // 순서3: 출장기간 날짜 확인 (공통 규칙) - 출장기간이 아닌 날짜의 영수증 반영 방지
   if (!isWithinTripDateRange(input.ocrDateGuess, input.tripStartDate, input.tripEndDate)) {
     return rejected(TRIP_DATE_MISMATCH_MESSAGE, "trip_date_mismatch", regulationRef);
   }
 
-  // 순서3: 장소 일치 확인 (출장경로 전체 중 하나라도 영수증 텍스트에 포함되면 통과)
+  // 순서4: 장소 일치 확인 (출장경로 전체 중 하나라도 영수증 텍스트에 포함되면 통과)
   if (!isLocationMatch(input.ocrText, input.tripLocations)) {
     return rejected(getCheckMessage(r.checks, "location_mismatch"), "location_mismatch", regulationRef);
   }
 
-  // 순서4: 시간대 확인 (05:00:00~10:00:59) - 날짜는 이미 출장기간 내로 확인됨, 시각만 비교
+  // 순서5: 시간대 확인 (05:00:00~10:00:59) - 날짜는 이미 출장기간 내로 확인됨, 시각만 비교
   // 실행 환경 타임존과 무관하게 한국 시각 기준으로 시/분/초를 뽑아야 한다(Vercel은 UTC로 돌아가서
   // 로컬 getHours() 등을 쓰면 9시간 밀린 값으로 판정하는 버그가 있었다).
   const { hour, minute, second } = getKstParts(new Date(input.ocrDateGuess!));
@@ -194,12 +197,12 @@ export function verifyBreakfast(input: BreakfastInput): VerificationResult {
     return rejected(getCheckMessage(r.checks, "time_window"), "time_window", regulationRef);
   }
 
-  // 순서5: 불인정 품목 포함 여부
+  // 순서6: 불인정 품목 포함 여부
   if (containsAny(input.ocrText, r.disallowed_item_keywords)) {
     return rejected(getCheckMessage(r.checks, "disallowed_item"), "disallowed_item", regulationRef);
   }
 
-  // 순서6: 영수증 매수 (한 사진에 여러 영수증이 찍힌 경우)
+  // 순서7: 영수증 매수 (한 사진에 여러 영수증이 찍힌 경우)
   // "합계/총액/결제금액" 같은 문구 개수로 세면, 할인 적용 전(합계)·후(결제금액) 금액을 각각
   // 표시하는 흔한 단일 영수증 포맷에서 오탐이 난다(예: "합계 13,000" 다음에 할인 후
   // "결제 금액 12,600"). 사업자등록번호(NNN-NN-NNNNN)는 영수증 1장당 하나만 나오므로,
@@ -210,12 +213,12 @@ export function verifyBreakfast(input: BreakfastInput): VerificationResult {
     return rejected(getCheckMessage(r.checks, "multiple_receipts"), "multiple_receipts", regulationRef);
   }
 
-  // 순서7: 금액이 추정값이면 자동 판정 보류 (확인 필요)
+  // 순서8: 금액이 추정값이면 자동 판정 보류 (확인 필요)
   if (input.ocrAmountIsEstimate) {
     return needsAmountReview(regulationRef);
   }
 
-  // 순서8: 금액 상한 (부분인정)
+  // 순서9: 금액 상한 (부분인정)
   if (input.ocrAmountGuess > r.amount_cap_krw) {
     return {
       status: "PARTIAL",
@@ -453,12 +456,11 @@ export function verifyLodging(input: LodgingInput): VerificationResult {
     );
   }
 
-  // 순서3: 출장기간 날짜 확인 (공통 규칙)
-  if (!isWithinTripDateRange(input.ocrDateGuess, input.tripStartDate, input.tripEndDate)) {
-    return rejected(TRIP_DATE_MISMATCH_MESSAGE, "trip_date_mismatch", regulationRef);
-  }
-
-  // 순서4: 장소 일치 확인 (도착지/경유지 중 하나라도 영수증 텍스트에 포함되면 통과)
+  // 순서3: 장소 일치 확인 (도착지/경유지 중 하나라도 영수증 텍스트에 포함되면 통과)
+  // 출장기간 날짜 확인은 일부러 없다 - OCR이 뽑는 날짜는 "결제 일시"인데, 숙박은 OTA로
+  // 출장 전에 미리 예약·결제하는 게 정상이라 결제일 기준 검사가 오반려를 유발한다.
+  // 교통(항공/선박)에서 2026-08-04에 같은 이유로 이미 제외했고, 숙박도 같은 사유로
+  // 2026-08-05에 제외했다(공통 규칙 common.trip_date_mismatch 참고).
   if (!isLocationMatch(input.ocrText, input.tripLocations)) {
     return rejected(getCheckMessage(r.checks, "location_mismatch"), "location_mismatch", regulationRef);
   }
@@ -467,12 +469,12 @@ export function verifyLodging(input: LodgingInput): VerificationResult {
     return rejected(getCheckMessage(r.checks, "not_a_receipt"), "not_a_receipt", regulationRef);
   }
 
-  // 순서5: 금액이 추정값이면 자동 판정 보류 (확인 필요)
+  // 순서4: 금액이 추정값이면 자동 판정 보류 (확인 필요)
   if (input.ocrAmountIsEstimate) {
     return needsAmountReview(regulationRef);
   }
 
-  // 순서6: 금액 상한 (부분인정) - 2박/3박이면 1박당 상한 × 박수로 늘어나고,
+  // 순서5: 금액 상한 (부분인정) - 2박/3박이면 1박당 상한 × 박수로 늘어나고,
   // 같은 출장의 다른 숙박 영수증이 이미 쓴 만큼은 빼고 남은 한도까지만 인정한다.
   const capForStay = r.daily_cap_krw * nights;
   const alreadyAccepted = Math.max(0, input.alreadyAcceptedInTrip ?? 0);

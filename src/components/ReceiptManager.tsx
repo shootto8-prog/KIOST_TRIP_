@@ -139,7 +139,7 @@ function VerdictBanner({
           type="button"
           onClick={() => onReanalyze(receipt.id)}
           disabled={reanalyzing}
-          className="mt-3 w-full rounded-xl bg-neutral-900 py-2.5 text-[13px] font-semibold text-white disabled:opacity-50 dark:bg-white dark:text-neutral-900"
+          className="mt-3 w-full rounded-full bg-neutral-900 py-2.5 text-[13px] font-semibold text-white disabled:opacity-50 dark:bg-white dark:text-neutral-900"
         >
           {reanalyzing ? "다시 인식 중..." : "다시 인식 시도"}
         </button>
@@ -156,8 +156,9 @@ function ImageGallery({ receipt }: { receipt: ReceiptItem }) {
         // eslint-disable-next-line @next/next/no-img-element
         <img
           key={img.id}
-          src={img.path}
+          src={img.thumbPath ?? img.path}
           alt="첨부 사진"
+          loading="lazy"
           className="h-20 w-20 shrink-0 rounded-xl object-cover"
         />
       ))}
@@ -213,7 +214,7 @@ function OcrDetailCard({
               <button
                 type="button"
                 onClick={() => setShowRaw((v) => !v)}
-                className="mt-3 text-[12px] font-medium text-blue-600 dark:text-blue-400"
+                className="mt-3 text-[12px] font-medium text-brand dark:text-brand-light"
               >
                 {showRaw ? "원문 텍스트 숨기기" : "원문 텍스트 전체 보기"}
               </button>
@@ -439,7 +440,7 @@ export default function ReceiptManager({
           <button
             type="button"
             onClick={() => galleryInputRef.current?.click()}
-            className="flex flex-1 items-center justify-center gap-2 rounded-2xl border border-black/5 bg-white/80 py-4 text-[15px] font-medium text-neutral-700 shadow-sm active:scale-[0.98] dark:border-white/10 dark:bg-white/[0.04] dark:text-neutral-200"
+            className="shadow-soft flex flex-1 items-center justify-center gap-2 rounded-[20px] border border-black/5 bg-white/80 py-4 text-[15px] font-medium text-neutral-700 active:scale-[0.98] dark:border-white/10 dark:bg-white/[0.04] dark:text-neutral-200"
           >
             <IconPhoto />
             사진 선택(갤러리)
@@ -447,14 +448,14 @@ export default function ReceiptManager({
           <button
             type="button"
             onClick={() => cameraInputRef.current?.click()}
-            className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-blue-600 py-4 text-[15px] font-semibold text-white shadow-sm active:scale-[0.98]"
+            className="shadow-glow flex flex-1 items-center justify-center gap-2 rounded-[20px] bg-brand py-4 text-[15px] font-semibold text-white active:scale-[0.98]"
           >
             <IconCamera />
             카메라로 촬영
           </button>
         </div>
       ) : (
-        <div className="rounded-3xl border border-black/5 bg-white/80 p-4 shadow-sm dark:border-white/10 dark:bg-white/[0.04]">
+        <div className="shadow-soft rounded-[24px] border border-black/5 bg-white/80 p-4 dark:border-white/10 dark:bg-white/[0.04]">
           <div className="flex flex-wrap gap-2">
             {queue.map((q) => (
               <div key={q.id} className="relative size-20 overflow-hidden rounded-xl bg-neutral-100 dark:bg-white/5">
@@ -505,7 +506,7 @@ export default function ReceiptManager({
               type="button"
               onClick={clearQueue}
               disabled={uploading}
-              className="flex-1 rounded-2xl border border-black/10 py-3 text-[15px] font-medium text-neutral-600 disabled:opacity-50 dark:border-white/15 dark:text-neutral-300"
+              className="flex-1 rounded-full border border-black/10 py-3 text-[15px] font-medium text-neutral-600 disabled:opacity-50 dark:border-white/15 dark:text-neutral-300"
             >
               취소
             </button>
@@ -513,7 +514,7 @@ export default function ReceiptManager({
               type="button"
               onClick={confirmUpload}
               disabled={uploading}
-              className="flex-1 rounded-2xl bg-blue-600 py-3 text-[15px] font-semibold text-white disabled:opacity-50"
+              className="shadow-glow flex-1 rounded-full bg-brand py-3 text-[15px] font-semibold text-white disabled:opacity-50"
             >
               {uploading ? "처리 중..." : `사진 ${queue.length}장 등록`}
             </button>
@@ -543,7 +544,12 @@ export default function ReceiptManager({
               >
                 {r.images[0] ? (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={r.images[0].path} alt="등록된 영수증" className="h-full w-full object-cover" />
+                  <img
+                    src={r.images[0].thumbPath ?? r.images[0].path}
+                    alt="등록된 영수증"
+                    loading="lazy"
+                    className="h-full w-full object-cover"
+                  />
                 ) : (
                   <div className="flex h-full w-full items-center justify-center">
                     <IconPhoto className="size-6 text-neutral-300" />

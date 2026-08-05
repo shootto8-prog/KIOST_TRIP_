@@ -19,8 +19,8 @@ export default async function HomePage() {
     return (
       <main className="space-y-6">
         <header>
-          <h1 className="text-2xl font-bold tracking-tight text-neutral-900 dark:text-neutral-100">
-            정총무1.0
+          <h1 className="text-[28px] font-bold tracking-tight text-neutral-900 dark:text-neutral-100">
+            정총무<span className="text-brand">1.0</span>
           </h1>
           <p className="mt-1 text-[14px] text-neutral-500">
             KIOST 국내여비 간편서비스 · 출장정보를 등록하고 조식·교통·숙박·현장사진을 관리하세요.
@@ -48,8 +48,8 @@ export default async function HomePage() {
   return (
     <main className="space-y-6">
       <header>
-        <h1 className="text-2xl font-bold tracking-tight text-neutral-900 dark:text-neutral-100">
-          정총무1.0
+        <h1 className="text-[28px] font-bold tracking-tight text-neutral-900 dark:text-neutral-100">
+          정총무<span className="text-brand">1.0</span>
         </h1>
         <p className="mt-1 text-[14px] text-neutral-500">
           KIOST 국내여비 간편서비스 · 출장정보를 등록하고 조식·교통·숙박·현장사진을 관리하세요.
@@ -70,7 +70,7 @@ export default async function HomePage() {
               return (
                 <div
                   key={trip.id}
-                  className="rounded-3xl border border-black/5 bg-white/80 p-4 shadow-sm dark:border-white/10 dark:bg-white/[0.04]"
+                  className="shadow-glow rounded-[28px] border border-brand/10 bg-white/90 p-4 dark:border-white/10 dark:bg-white/[0.04]"
                 >
                   <div className="flex items-center justify-between">
                     <span className="inline-block rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">
@@ -89,30 +89,30 @@ export default async function HomePage() {
                   <div className="mt-3 grid grid-cols-4 gap-2">
                     <Link
                       href={`/trip/${trip.id}/breakfast`}
-                      className="flex flex-col items-center gap-1 rounded-2xl bg-amber-500/10 py-3 text-[12px] font-medium text-amber-700 active:scale-[0.97] dark:text-amber-400"
+                      className="flex flex-col items-center gap-1.5 rounded-[20px] bg-amber-500/10 py-3 text-[12px] font-medium text-amber-700 ring-1 ring-inset ring-amber-500/15 active:scale-[0.97] dark:text-amber-400"
                     >
-                      <IconBreakfast className="size-5" />
+                      <IconBreakfast className="size-6" />
                       조식
                     </Link>
                     <Link
                       href={`/trip/${trip.id}/transport`}
-                      className="flex flex-col items-center gap-1 rounded-2xl bg-blue-500/10 py-3 text-[12px] font-medium text-blue-700 active:scale-[0.97] dark:text-blue-400"
+                      className="flex flex-col items-center gap-1.5 rounded-[20px] bg-blue-500/10 py-3 text-[12px] font-medium text-blue-700 ring-1 ring-inset ring-blue-500/15 active:scale-[0.97] dark:text-blue-400"
                     >
-                      <IconTransport className="size-5" />
+                      <IconTransport className="size-6" />
                       교통
                     </Link>
                     <Link
                       href={`/trip/${trip.id}/lodging`}
-                      className="flex flex-col items-center gap-1 rounded-2xl bg-violet-500/10 py-3 text-[12px] font-medium text-violet-700 active:scale-[0.97] dark:text-violet-400"
+                      className="flex flex-col items-center gap-1.5 rounded-[20px] bg-violet-500/10 py-3 text-[12px] font-medium text-violet-700 ring-1 ring-inset ring-violet-500/15 active:scale-[0.97] dark:text-violet-400"
                     >
-                      <IconLodging className="size-5" />
+                      <IconLodging className="size-6" />
                       숙박
                     </Link>
                     <Link
                       href={`/trip/${trip.id}/field`}
-                      className="flex flex-col items-center gap-1 rounded-2xl bg-rose-500/10 py-3 text-[12px] font-medium text-rose-700 active:scale-[0.97] dark:text-rose-400"
+                      className="flex flex-col items-center gap-1.5 rounded-[20px] bg-rose-500/10 py-3 text-[12px] font-medium text-rose-700 ring-1 ring-inset ring-rose-500/15 active:scale-[0.97] dark:text-rose-400"
                     >
-                      <IconPhoto className="size-5" />
+                      <IconPhoto className="size-6" />
                       현장사진
                     </Link>
                   </div>
@@ -137,7 +137,7 @@ export default async function HomePage() {
               return (
                 <div
                   key={trip.id}
-                  className="rounded-2xl border border-black/5 bg-white/80 p-4 shadow-sm transition dark:border-white/10 dark:bg-white/[0.04]"
+                  className="shadow-soft rounded-2xl border border-black/5 bg-white/80 p-4 transition hover:border-brand/15 dark:border-white/10 dark:bg-white/[0.04]"
                 >
                   <div className="flex items-start justify-between gap-2">
                     <Link

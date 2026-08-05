@@ -1,5 +1,11 @@
 @import "tailwindcss";
 
+@theme {
+  --color-brand: #3770bf;
+  --color-brand-dark: #245c9f;
+  --color-brand-light: #8dc2ff;
+}
+
 :root {
   color-scheme: light dark;
 }
@@ -13,13 +19,32 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display",
     "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
-  background-color: #f5f5f7;
-  color: #1d1d1f;
+  background-color: #f3f6fb;
+  color: #102033;
 }
 
 @media (prefers-color-scheme: dark) {
   body {
-    background-color: #000000;
-    color: #f5f5f7;
+    background-color: #0a1220;
+    color: #f3f6fb;
+  }
+}
+
+/* 브랜드 컬러가 은은하게 번지는 그림자 - klocal 참고, 검정 그림자 대신 브랜드 톤으로 깊이감을 준다 */
+.shadow-glow {
+  box-shadow: 0 18px 40px -14px rgb(55 112 191 / 0.28);
+}
+
+/* 카테고리별 강조색이 섞이는 카드(조식/교통/숙박/현장사진 등)용 - 브랜드색 대신 중립 남색 톤 그림자 */
+.shadow-soft {
+  box-shadow: 0 14px 34px -18px rgb(16 32 51 / 0.35);
+}
+
+@media (prefers-color-scheme: dark) {
+  .shadow-glow {
+    box-shadow: 0 18px 40px -14px rgb(0 0 0 / 0.5);
+  }
+  .shadow-soft {
+    box-shadow: 0 14px 34px -18px rgb(0 0 0 / 0.6);
   }
 }

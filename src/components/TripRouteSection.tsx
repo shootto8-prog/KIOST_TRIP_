@@ -43,7 +43,7 @@ export default function TripRouteSection({
   }
 
   return (
-    <section className="rounded-3xl border border-black/5 bg-white/80 p-5 shadow-sm dark:border-white/10 dark:bg-white/[0.04]">
+    <section className="shadow-soft rounded-[28px] border border-black/5 bg-white/80 p-5 dark:border-white/10 dark:bg-white/[0.04]">
       <div className="flex items-center justify-between">
         <h1 className="text-[15px] font-semibold text-neutral-900 dark:text-neutral-100">
           출장경로
@@ -51,7 +51,7 @@ export default function TripRouteSection({
         <button
           type="button"
           onClick={() => setEditing(true)}
-          className="text-[13px] font-medium text-blue-600 dark:text-blue-400"
+          className="text-[13px] font-medium text-brand dark:text-brand-light"
         >
           출장 정보 변경
         </button>

@@ -33,7 +33,7 @@ export default function TripStatusButton({
         type="button"
         onClick={() => changeStatus("COMPLETED")}
         disabled={loading}
-        className="w-full rounded-2xl bg-neutral-900 py-3 text-[15px] font-semibold text-white disabled:opacity-50 dark:bg-white dark:text-neutral-900"
+        className="w-full rounded-full bg-neutral-900 py-3 text-[15px] font-semibold text-white disabled:opacity-50 dark:bg-white dark:text-neutral-900"
       >
         {loading ? "처리 중..." : "출장 종료"}
       </button>

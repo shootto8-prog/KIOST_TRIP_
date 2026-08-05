@@ -39,7 +39,7 @@ export default function IdentityPrompt() {
   return (
     <form
       onSubmit={handleSubmit}
-      className="rounded-3xl border border-black/5 bg-white/80 p-5 shadow-sm backdrop-blur dark:border-white/10 dark:bg-white/[0.04] sm:p-6"
+      className="shadow-glow rounded-[28px] border border-brand/10 bg-white/90 p-5 backdrop-blur dark:border-white/10 dark:bg-white/[0.04] sm:p-6"
     >
       <h2 className="text-[15px] font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">
         본인 확인
@@ -60,7 +60,7 @@ export default function IdentityPrompt() {
       <button
         type="submit"
         disabled={submitting}
-        className="mt-4 w-full rounded-2xl bg-blue-600 py-3 text-[15px] font-semibold text-white transition active:scale-[0.99] disabled:opacity-50"
+        className="shadow-glow mt-4 w-full rounded-full bg-brand py-3 text-[15px] font-semibold text-white transition active:scale-[0.99] disabled:opacity-50"
       >
         {submitting ? "확인 중..." : "시작하기"}
       </button>

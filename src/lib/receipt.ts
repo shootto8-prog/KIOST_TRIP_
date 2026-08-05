@@ -3,7 +3,7 @@ import type { Receipt, ReceiptImage } from "@prisma/client";
 export type ReceiptItem = {
   id: string;
   category: "BREAKFAST" | "TRANSPORT" | "LODGING" | "FIELD";
-  images: { id: string; path: string; order: number }[];
+  images: { id: string; path: string; thumbPath: string | null; order: number }[];
   createdAt: string;
   transportMode?: "SHIP" | "AIR" | "RAIL" | "PRIVATE_CAR" | "BUS" | null;
   seatClass?: "NORMAL" | "RESTRICTED" | null;
@@ -27,7 +27,7 @@ export function toReceiptItem(r: Receipt & { images: ReceiptImage[] }): ReceiptI
     images: r.images
       .slice()
       .sort((a, b) => a.order - b.order)
-      .map((img) => ({ id: img.id, path: img.path, order: img.order })),
+      .map((img) => ({ id: img.id, path: img.path, thumbPath: img.thumbPath, order: img.order })),
     createdAt: r.createdAt.toISOString(),
     transportMode: r.transportMode,
     seatClass: r.seatClass,

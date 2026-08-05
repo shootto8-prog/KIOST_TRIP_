@@ -5,7 +5,7 @@ import { randomUUID } from "crypto";
 import type { ReceiptImage } from "@/lib/receiptOcr";
 import { analyzeReceipt, tripNights } from "@/lib/analyzeReceipt";
 import { renderAllPdfPagesToPng } from "@/lib/pdfToImage";
-import { isHeic, heicToJpeg } from "@/lib/imageConvert";
+import { isHeic, heicToJpeg, toThumbnailJpeg } from "@/lib/imageConvert";
 import { sumAcceptedLodgingInTrip } from "@/lib/lodgingBudget";
 import { assertTripOwner } from "@/lib/ownerGuard";
 
@@ -100,11 +100,31 @@ export async function POST(req: NextRequest) {
 
   const categoryDir = category.toLowerCase();
 
+  /**
+   * 목록/그리드는 원본(휴대폰 사진 3~6MB)이 아니라 이 축소본만 받아야 한다 - 실패해도 화면
+   * 표시용 원본(path)이 이미 있으니 썸네일 생성 실패로 업로드 전체를 막을 이유는 없다(썸네일 없는
+   * 경우 프론트에서 path로 폴백한다).
+   */
+  async function makeThumbnail(buffer: Buffer, baseName: string): Promise<string | null> {
+    try {
+      const thumbBuffer = await toThumbnailJpeg(buffer);
+      const thumbBlob = await put(`uploads/${tripId}/${categoryDir}/${baseName}-thumb.jpg`, thumbBuffer, {
+        access: "public",
+        contentType: "image/jpeg",
+      });
+      generatedUrls.push(thumbBlob.url);
+      return thumbBlob.url;
+    } catch (err) {
+      console.error("Failed to generate/store thumbnail:", err);
+      return null;
+    }
+  }
+
   // 사진은 브라우저에서 이미 Vercel Blob으로 직접 업로드됐다(서버 요청 본문 4.5MB 제한을
   // 피하기 위함) - 여기서는 그 URL들을 다시 읽어와 OCR용 이미지 배열(PDF는 페이지별로 펼침)과
-  // 최종 표시용 경로를 만든다.
+  // 최종 표시용 경로(+그리드용 축소본)를 만든다.
   const photoGroups: ReceiptImage[][] = [];
-  const savedPaths: string[] = [];
+  const savedImages: { path: string; thumbPath: string | null }[] = [];
   for (const b of blobs) {
     if (typeof b?.url !== "string") {
       return failWith("업로드된 사진 정보가 올바르지 않습니다.", 400);
@@ -151,13 +171,14 @@ export async function POST(req: NextRequest) {
       const docId = randomUUID();
       try {
         for (const [pageIdx, pageBuffer] of pages.entries()) {
-          const pngBlob = await put(
-            `uploads/${tripId}/${categoryDir}/${docId}-p${pageIdx + 1}.png`,
-            pageBuffer,
-            { access: "public", contentType: "image/png" }
-          );
+          const pageName = `${docId}-p${pageIdx + 1}`;
+          const pngBlob = await put(`uploads/${tripId}/${categoryDir}/${pageName}.png`, pageBuffer, {
+            access: "public",
+            contentType: "image/png",
+          });
           generatedUrls.push(pngBlob.url);
-          savedPaths.push(pngBlob.url);
+          const thumbPath = await makeThumbnail(pageBuffer, pageName);
+          savedImages.push({ path: pngBlob.url, thumbPath });
         }
       } catch (err) {
         console.error("Failed to store rendered PDF pages:", err);
@@ -177,13 +198,15 @@ export async function POST(req: NextRequest) {
           400
         );
       }
+      const imgName = randomUUID();
       try {
-        const jpegBlob = await put(`uploads/${tripId}/${categoryDir}/${randomUUID()}.jpg`, jpegBuffer, {
+        const jpegBlob = await put(`uploads/${tripId}/${categoryDir}/${imgName}.jpg`, jpegBuffer, {
           access: "public",
           contentType: "image/jpeg",
         });
         generatedUrls.push(jpegBlob.url);
-        savedPaths.push(jpegBlob.url);
+        const thumbPath = await makeThumbnail(jpegBuffer, imgName);
+        savedImages.push({ path: jpegBlob.url, thumbPath });
       } catch (err) {
         console.error("Failed to store converted HEIC image:", err);
         return failWith("변환한 사진을 저장하지 못했습니다.", 500);
@@ -192,7 +215,8 @@ export async function POST(req: NextRequest) {
       ocrImages = [{ buffer: jpegBuffer, mimeType: "image/jpeg" }];
     } else {
       ocrImages = [{ buffer: originalBuffer, mimeType: b.contentType }];
-      savedPaths.push(b.url);
+      const thumbPath = await makeThumbnail(originalBuffer, randomUUID());
+      savedImages.push({ path: b.url, thumbPath });
     }
     photoGroups.push(ocrImages);
   }
@@ -231,7 +255,9 @@ export async function POST(req: NextRequest) {
       category: category as (typeof CATEGORIES)[number],
       transportMode,
       seatClass,
-      images: { create: savedPaths.map((p, i) => ({ path: p, order: i })) },
+      images: {
+        create: savedImages.map((img, i) => ({ path: img.path, thumbPath: img.thumbPath, order: i })),
+      },
       ocrStatus: analysis.ocrStatus,
       ocrText: analysis.ocrText,
       ocrAmountGuess: analysis.ocrAmountGuess,
@@ -275,7 +301,9 @@ export async function DELETE(req: NextRequest) {
   }
 
   await prisma.receipt.delete({ where: { id } });
-  await cleanupBlobs(receipt.images.map((img) => img.path));
+  await cleanupBlobs(
+    receipt.images.flatMap((img) => [img.path, img.thumbPath].filter((u): u is string => !!u))
+  );
   return NextResponse.json({ ok: true });
 }
 

@@ -55,9 +55,9 @@ export default function EmailSendButton({
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="mt-2 inline-flex items-center gap-2 rounded-2xl bg-white/15 px-4 py-2.5 text-[14px] font-semibold text-white backdrop-blur transition hover:bg-white/25"
+        className="mt-2 inline-flex items-center gap-2 rounded-full bg-white/15 px-4 py-2.5 text-[14px] font-semibold text-white backdrop-blur transition hover:bg-white/25"
       >
-        <IconMail className="size-4" />
+        <IconMail className="size-5" />
         이메일로 받기
       </button>
     );
@@ -72,12 +72,12 @@ export default function EmailSendButton({
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           placeholder="받으실 이메일 주소"
-          className="min-w-0 flex-1 rounded-2xl bg-white/15 px-4 py-2.5 text-[14px] text-white outline-none placeholder:text-blue-100"
+          className="min-w-0 flex-1 rounded-full bg-white/15 px-4 py-2.5 text-[14px] text-white outline-none placeholder:text-blue-100"
         />
         <button
           type="submit"
           disabled={sending}
-          className="shrink-0 rounded-2xl bg-white px-4 py-2.5 text-[14px] font-semibold text-blue-600 disabled:opacity-50"
+          className="shrink-0 rounded-full bg-white px-4 py-2.5 text-[14px] font-semibold text-brand disabled:opacity-50"
         >
           {sending ? "발송 중..." : "보내기"}
         </button>

@@ -108,6 +108,9 @@ model ReceiptImage {
   receiptId String
   receipt   Receipt @relation(fields: [receiptId], references: [id], onDelete: Cascade)
   path      String
+  /** 목록/그리드용 축소본(긴 변 400px) - 원본은 화면 표시가 아니라 재분석/정산서 임베드용으로만 쓴다.
+   * 축소본이 없는 과거 레코드(마이그레이션 이전 업로드)는 null이라 화면에서 path로 폴백한다. */
+  thumbPath String?
   order     Int
 
   @@index([receiptId])

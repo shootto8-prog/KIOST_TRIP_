@@ -113,7 +113,7 @@ export default function DateYMDInput({
         type="button"
         onClick={openPicker}
         aria-label="달력에서 날짜 선택"
-        className="flex size-7 shrink-0 items-center justify-center rounded-lg text-neutral-400 hover:bg-black/5 hover:text-blue-600 dark:hover:bg-white/10 dark:hover:text-blue-400"
+        className="flex size-8 shrink-0 items-center justify-center rounded-lg text-neutral-400 hover:bg-brand/10 hover:text-brand dark:hover:bg-white/10 dark:hover:text-brand-light"
       >
         <IconCalendar />
       </button>

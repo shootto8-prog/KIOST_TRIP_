@@ -11,20 +11,21 @@ export default async function BreakfastPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const trip = await prisma.trip.findUnique({ where: { id } });
+  const [trip, receipts] = await Promise.all([
+    prisma.trip.findUnique({ where: { id } }),
+    prisma.receipt.findMany({
+      where: { tripId: id, category: "BREAKFAST" },
+      orderBy: { createdAt: "desc" },
+      include: { images: { orderBy: { order: "asc" } } },
+    }),
+  ]);
   if (!trip) notFound();
-
-  const receipts = await prisma.receipt.findMany({
-    where: { tripId: id, category: "BREAKFAST" },
-    orderBy: { createdAt: "desc" },
-    include: { images: { orderBy: { order: "asc" } } },
-  });
 
   return (
     <main className="space-y-6">
       <CategoryPageHeader
         tripId={id}
-        icon={<IconBreakfast className="size-5 text-amber-600 dark:text-amber-400" />}
+        icon={<IconBreakfast className="size-6 text-amber-600 dark:text-amber-400" />}
         title="조식"
         accent="bg-amber-500/10"
       />

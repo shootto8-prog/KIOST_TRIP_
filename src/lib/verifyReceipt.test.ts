@@ -148,10 +148,26 @@ describe("verifyBreakfast", () => {
     expect(result.failedCheckId).toBe("amount_estimated");
   });
 
-  it("OCR 인식 실패: 품목 확인 불가로 불인정", () => {
+  it("OCR 인식 자체가 실패(모델 429/타임아웃 등): ocr_unavailable로 불인정 - '다시 인식 시도' 버튼이 뜨려면 이 id여야 한다", () => {
+    // 실사용 중 발견된 버그: 예전엔 이 경우도 failedCheckId가 "item_unrecognized"로 찍혀서
+    // ReceiptManager의 RETRYABLE_FAILED_CHECKS에 안 걸렸고, 재시도 버튼 자체가 안 떴다.
     const result = verifyBreakfast({
       ocrStatus: "FAILED",
       ocrText: null,
+      ocrAmountGuess: null,
+      ocrDateGuess: null,
+      tripStartDate: TRIP_START,
+      tripEndDate: TRIP_END,
+      tripLocations: ALL_LOCATIONS,
+    });
+    expect(result.status).toBe("REJECTED");
+    expect(result.failedCheckId).toBe("ocr_unavailable");
+  });
+
+  it("OCR은 됐지만 인식된 텍스트가 너무 짧음: item_unrecognized로 불인정 (ocr_unavailable과는 구분)", () => {
+    const result = verifyBreakfast({
+      ocrStatus: "DONE",
+      ocrText: "abc",
       ocrAmountGuess: null,
       ocrDateGuess: null,
       tripStartDate: TRIP_START,
@@ -441,7 +457,10 @@ describe("verifyLodging", () => {
     expect(result.acceptedAmount).toBe(115000);
   });
 
-  it("출장기간 밖 날짜(7/25): 불인정", () => {
+  it("결제일이 출장기간 밖(7/25, OTA 사전결제 등): 날짜는 검사하지 않으므로 장소만 맞으면 인정", () => {
+    // 숙박은 OTA로 출장 전에 미리 예약·결제하는 게 정상이라(2026-08-05 결정), 결제일이
+    // 출장기간 밖이어도 더 이상 trip_date_mismatch로 불인정하지 않는다. 교통(항공/선박)에
+    // 2026-08-04에 적용한 것과 동일한 예외.
     const result = verifyLodging({
       ocrStatus: "DONE",
       ocrText: "부산 호텔\n부산광역시\n2026-07-25 15:20:00\n합계금액 115,000원\n영수증(RECEIPT)",
@@ -452,8 +471,8 @@ describe("verifyLodging", () => {
       tripLocations: ["부산"],
       nights: 1,
     });
-    expect(result.status).toBe("REJECTED");
-    expect(result.failedCheckId).toBe("trip_date_mismatch");
+    expect(result.status).toBe("APPROVED");
+    expect(result.acceptedAmount).toBe(115000);
   });
 
   it("금액 초과: 120,000원 상한까지만 부분인정", () => {

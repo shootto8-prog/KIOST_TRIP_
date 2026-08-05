@@ -150,7 +150,7 @@ export default function TripForm({
   return (
     <form
       onSubmit={handleSubmit}
-      className="rounded-3xl border border-black/5 bg-white/80 p-5 shadow-sm backdrop-blur dark:border-white/10 dark:bg-white/[0.04] sm:p-6"
+      className="shadow-glow rounded-[28px] border border-brand/10 bg-white/90 p-5 backdrop-blur dark:border-white/10 dark:bg-white/[0.04] sm:p-6"
     >
       <h2 className="text-[15px] font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">
         {isEdit ? "출장 정보 변경" : "출장정보"}
@@ -208,7 +208,7 @@ export default function TripForm({
       <button
         type="button"
         onClick={addStopover}
-        className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-2xl border border-dashed border-black/10 py-2.5 text-[14px] font-medium text-blue-600 hover:bg-blue-500/5 dark:border-white/15 dark:text-blue-400"
+        className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-2xl border border-dashed border-brand/20 py-2.5 text-[14px] font-medium text-brand hover:bg-brand/5 dark:border-white/15 dark:text-brand-light"
       >
         <IconPlus />
         경유지 추가
@@ -232,7 +232,7 @@ export default function TripForm({
         <button
           type="submit"
           disabled={submitting}
-          className="flex-1 rounded-2xl bg-blue-600 py-3 text-[15px] font-semibold text-white transition active:scale-[0.99] disabled:opacity-50"
+          className="shadow-glow flex-1 rounded-full bg-brand py-3 text-[15px] font-semibold text-white transition active:scale-[0.99] disabled:opacity-50"
         >
           {submitting ? "저장 중..." : isEdit ? "변경 사항 저장" : "출장 시작"}
         </button>

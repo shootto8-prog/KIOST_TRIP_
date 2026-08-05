@@ -11,20 +11,21 @@ export default async function TransportPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const trip = await prisma.trip.findUnique({ where: { id } });
+  const [trip, receipts] = await Promise.all([
+    prisma.trip.findUnique({ where: { id } }),
+    prisma.receipt.findMany({
+      where: { tripId: id, category: "TRANSPORT" },
+      orderBy: { createdAt: "desc" },
+      include: { images: { orderBy: { order: "asc" } } },
+    }),
+  ]);
   if (!trip) notFound();
-
-  const receipts = await prisma.receipt.findMany({
-    where: { tripId: id, category: "TRANSPORT" },
-    orderBy: { createdAt: "desc" },
-    include: { images: { orderBy: { order: "asc" } } },
-  });
 
   return (
     <main className="space-y-6">
       <CategoryPageHeader
         tripId={id}
-        icon={<IconTransport className="size-5 text-blue-600 dark:text-blue-400" />}
+        icon={<IconTransport className="size-6 text-blue-600 dark:text-blue-400" />}
         title="교통"
         accent="bg-blue-500/10"
       />
