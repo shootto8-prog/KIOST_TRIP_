@@ -17,9 +17,9 @@ const MARGIN = 42;
 const CONTENT_WIDTH = PAGE_WIDTH - MARGIN * 2;
 
 // Windows 시스템 폰트(맑은고딕) 대신, 어떤 서버(Vercel 등 Linux)에서도 동일하게 동작하도록
-// 오픈소스 한글 폰트(Pretendard, SIL OFL)를 프로젝
+// 오픈소스 한글 폰트(Pretendard, SIL OFL)를 프로젝트 자산으로 번들링해서 쓴다.
 const FONT_REGULAR_PATH = path.join(process.cwd(), "public", "fonts", "Pretendard-Regular.ttf");
-const FONT_BOLD_PATH = path.join(process.cwd(), "pubold.ttf");
+const FONT_BOLD_PATH = path.join(process.cwd(), "public", "fonts", "Pretendard-Bold.ttf");
 
 const COLOR_TEXT = rgb(0.11, 0.11, 0.12);
 const COLOR_MUTED = rgb(0.45, 0.45, 0.47);
@@ -81,17 +81,17 @@ class PdfWriter {
     let bytes: Buffer;
     try {
       if (/^https?:\/\//.test(imagePath)) {
-        const res = await fetch(imagePath, { signal:ETCH_TIMEOUT_MS) });
+        const res = await fetch(imagePath, { signal: AbortSignal.timeout(IMAGE_FETCH_TIMEOUT_MS) });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        bytes = Buffer.from(await res.arrayBuffer())
+        bytes = Buffer.from(await res.arrayBuffer());
       } else {
-        bytes = await readFile(path.join(process.cwd
+        bytes = await readFile(path.join(process.cwd(), "public", imagePath));
       }
     } catch (err) {
       const timedOut = err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError");
       this.text(
         timedOut
-          ? "(첨부 이미지를 시간 내에 불러오지 못했
+          ? "(첨부 이미지를 시간 내에 불러오지 못했습니다)"
           : "(첨부 이미지 파일을 찾을 수 없습니다)",
         { size: 10, color: COLOR_MUTED, gap: 16 }
       );
@@ -99,15 +99,15 @@ class PdfWriter {
     }
 
     // pdf-lib은 화면 배치 크기(아래 maxW/maxH)와 무관하게 원본 바이트를 그대로 삽입한다.
-    // 아이폰 사진(장당 4~6MB)을 열 장 넣으면 PDF가 25MB)에 걸리거나
+    // 아이폰 사진(장당 4~6MB)을 열 장 넣으면 PDF가 50MB를 넘겨 Gmail 첨부 한도(25MB)에 걸리거나
     // 서버리스 함수가 시간 초과로 죽었다 - 삽입 직전에 축소본(장당 200~300KB)으로 바꾼다.
-    // HEIC처럼 예전 pdf-lib 분기가 "미리보기 미지원 함께 처리된다.
+    // HEIC처럼 예전 pdf-lib 분기가 "미리보기 미지원"으로 건너뛰던 형식도 여기서 함께 처리된다.
     // (OCR/화면 표시에 쓰는 원본 파일은 그대로 둔다 - 인식 정확도 유지 목적)
     let embedded;
     try {
-      embedded = await this.doc.embedJpg(await toPdf
+      embedded = await this.doc.embedJpg(await toPdfEmbeddableJpeg(bytes));
     } catch (resizeErr) {
-      console.error("PDF image resize failed, fallinresizeErr);
+      console.error("PDF image resize failed, falling back to original bytes:", resizeErr);
       const ext = path.extname(imagePath).toLowerCase();
       try {
         if (ext === ".png") {
@@ -115,7 +115,7 @@ class PdfWriter {
         } else if (ext === ".jpg" || ext === ".jpeg") {
           embedded = await this.doc.embedJpg(bytes);
         } else {
-          this.text(`(미리보기 미지원 이미지 형식: $주세요)`, {
+          this.text(`(미리보기 미지원 이미지 형식: ${ext} - 원본 파일에서 확인해주세요)`, {
             size: 10,
             color: COLOR_MUTED,
             gap: 16,
@@ -123,7 +123,7 @@ class PdfWriter {
           return;
         }
       } catch {
-        this.text("(이미지 렌더링에 실패했습니다)", ED, gap: 16 });
+        this.text("(이미지 렌더링에 실패했습니다)", { size: 10, color: COLOR_MUTED, gap: 16 });
         return;
       }
     }
@@ -139,7 +139,7 @@ class PdfWriter {
   }
 
   /**
-   * 정산서 맨 아래에 넣는 안내/홍보 이미지 - 영수증  가운데 정렬한다.
+   * 정산서 맨 아래에 넣는 안내/홍보 이미지 - 영수증 사진과 달리 페이지 폭에 맞춰 가운데 정렬한다.
    * 가로는 본문 폭(CONTENT_WIDTH, 약 180mm)까지, 세로는 150pt(약 53mm)까지만 차지하도록 축소한다.
    */
   async noticeImage(bytes: Buffer) {
@@ -147,7 +147,7 @@ class PdfWriter {
     try {
       embedded = await this.doc.embedPng(bytes);
     } catch (err) {
-      console.error("Failed to embed settlement noti
+      console.error("Failed to embed settlement notice image:", err);
       return;
     }
     const maxW = CONTENT_WIDTH;
@@ -161,7 +161,7 @@ class PdfWriter {
   }
 }
 
-async function embedKoreanFonts(doc: PDFDocument): Pold: PDFFont }> {
+async function embedKoreanFonts(doc: PDFDocument): Promise<{ regular: PDFFont; bold: PDFFont }> {
   doc.registerFontkit(fontkit);
   let regularBytes: Buffer;
   let boldBytes: Buffer;
@@ -171,9 +171,9 @@ async function embedKoreanFonts(doc: PDFDocument): Pold: PDFFont }> {
     throw new Error(`한글 폰트 파일을 찾을 수 없습니다 (${FONT_REGULAR_PATH}).`);
   }
   // subset: true로 두면 pdf-lib(fontkit)의 서브셋터가 Pretendard의 글리프 테이블을 제대로
-  // 처리하지 못해 한글 대부분이 빈 칸으로 출력되는 , 폰트 전체를
+  // 처리하지 못해 한글 대부분이 빈 칸으로 출력되는 문제가 있어(테스트로 확인됨), 폰트 전체를
   // 그대로 embed한다. 파일 용량은 커지지만(수 MB) 이메일 첨부 기준으로는 충분히 작다.
-  const regular = await doc.embedFont(regularBytes,
+  const regular = await doc.embedFont(regularBytes, { subset: false });
   const bold = await doc.embedFont(boldBytes, { subset: false });
   return { regular, bold };
 }
@@ -185,17 +185,17 @@ const FOOTER_DISCLAIMER =
 export async function generateTripPdf(tripId: string): Promise<Uint8Array> {
   const data = await getTripWithSummary(tripId);
   if (!data) throw new Error("출장 정보를 찾을 수 없습니다.");
-  const { trip, byCategory, sumByCategory, totalAmou
+  const { trip, byCategory, sumByCategory, totalAmount } = data;
 
   const doc = await PDFDocument.create();
   doc.setTitle("국내여비 실비정산 내역");
-  const { regular, bold } = await embedKoreanFonts(d
+  const { regular, bold } = await embedKoreanFonts(doc);
   const w = new PdfWriter(doc, regular, bold);
 
   w.text("국내여비 실비정산 내역", { size: 20, bold: true, gap: 30 });
-  w.text(`생성일시: ${formatDateTime(new Date())}`, D, gap: 20 });
+  w.text(`생성일시: ${formatDateTime(new Date())}`, { size: 9, color: COLOR_MUTED, gap: 20 });
 
-  w.text(`출장기간   ${formatDate(trip.startDate)} ~`, {
+  w.text(`출장기간   ${formatDate(trip.startDate)} ~ ${formatDate(trip.endDate)}`, {
     size: 12,
     bold: true,
     gap: 22,
@@ -213,13 +213,13 @@ export async function generateTripPdf(tripId: string): Promise<Uint8Array> {
   w.text("항목별 합계", { size: 13, bold: true, gap: 20 });
   for (const c of SETTLED_CATEGORIES) {
     w.text(
-      `${CATEGORY_LABEL[c]}   ${byCategory[c].lengthocaleString("ko-KR")}원`,
+      `${CATEGORY_LABEL[c]}   ${byCategory[c].length}건   ${sumByCategory[c].toLocaleString("ko-KR")}원`,
       { size: 11, gap: 18 }
     );
   }
-  w.text(`현장사진   ${byCategory.FIELD.length}건`,
+  w.text(`현장사진   ${byCategory.FIELD.length}건`, { size: 11, gap: 18 });
   w.spacer(4);
-  w.text(`전체 합계   ${totalAmount.toLocaleString("
+  w.text(`전체 합계   ${totalAmount.toLocaleString("ko-KR")}원`, {
     size: 15,
     bold: true,
     color: COLOR_ACCENT,
@@ -235,9 +235,9 @@ export async function generateTripPdf(tripId: string): Promise<Uint8Array> {
     w.text(`${CATEGORY_LABEL[c]} 세부내역 (${items.length}건)`, { size: 13, bold: true, gap: 20 });
 
     for (const r of items) {
-      const statusLabel = VERDICT_LABEL[r.verdictSta
+      const statusLabel = VERDICT_LABEL[r.verdictStatus];
       const statusColor =
-        r.verdictStatus === "REJECTED" ? COLOR_REJECARTIAL" ? COLOR_PARTIAL : COLOR_TEXT;
+        r.verdictStatus === "REJECTED" ? COLOR_REJECTED : r.verdictStatus === "PARTIAL" ? COLOR_PARTIAL : COLOR_TEXT;
 
       w.ensureSpace(60);
       w.text(`[${statusLabel}] ${r.ocrMerchantGuess ?? "상호명 인식 안 됨"}`, {
@@ -247,13 +247,13 @@ export async function generateTripPdf(tripId: string): Promise<Uint8Array> {
         gap: 16,
       });
       w.text(
-        `  일시: ${r.ocrDateGuess ? formatDateTime(r"}   ` +
+        `  일시: ${r.ocrDateGuess ? formatDateTime(r.ocrDateGuess) : "인식 안 됨"}   ` +
           `인식금액: ${r.ocrAmountGuess !== null ? r.ocrAmountGuess.toLocaleString("ko-KR") + "원" : "인식 안 됨"}   ` +
-          `인정금액: ${r.verdictAmount !== null ? r.("ko-KR") + "원" : "-"}`,
+          `인정금액: ${r.verdictAmount !== null ? r.verdictAmount.toLocaleString("ko-KR") + "원" : "-"}`,
         { size: 10, color: COLOR_MUTED, gap: 15 }
       );
       if (r.verdictMessage) {
-        w.text(`  ${r.verdictMessage}`, { size: 10, });
+        w.text(`  ${r.verdictMessage}`, { size: 10, color: statusColor, gap: 15 });
       }
       if (r.verdictRegulationRef) {
         w.text(`  근거: ${r.verdictRegulationRef}`, { size: 9, color: COLOR_MUTED, gap: 15 });
@@ -263,13 +263,13 @@ export async function generateTripPdf(tripId: string): Promise<Uint8Array> {
       }
       w.spacer(6);
     }
-
+    w.hr();
   }
 
   // 현장사진: 판정 대상이 아닌 순수 증빙이라 상태/금액 없이 사진만 나열한다.
   if (byCategory.FIELD.length > 0) {
     w.ensureSpace(40);
-    w.text(`현장사진 (${byCategory.FIELD.length}건)p: 20 });
+    w.text(`현장사진 (${byCategory.FIELD.length}건)`, { size: 13, bold: true, gap: 20 });
     for (const [i, r] of byCategory.FIELD.entries()) {
       w.ensureSpace(30);
       w.text(`${i + 1}. ${formatDateTime(r.createdAt)}`, { size: 10.5, color: COLOR_MUTED, gap: 15 });
@@ -285,7 +285,7 @@ export async function generateTripPdf(tripId: string): Promise<Uint8Array> {
   w.text(FOOTER_DISCLAIMER, { size: 9, color: COLOR_MUTED, gap: 14 });
 
   // public/settlement-notice.png 파일을 교체하는 것만으로 넣고 뺄 수 있는 안내/홍보 이미지.
-  const noticeImageBytes = await readSettlementNoti
+  const noticeImageBytes = await readSettlementNoticeImage();
   if (noticeImageBytes) {
     w.spacer(6);
     await w.noticeImage(noticeImageBytes);
