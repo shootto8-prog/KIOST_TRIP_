@@ -795,34 +795,20 @@ describe("verifyBreakfastManual (자동정산 미사용, 수동입력)", () => {
 });
 
 describe("verifyTransportManual (자동정산 미사용, 수동입력)", () => {
-  it("일반석 -> 인정", () => {
-    const result = verifyTransportManual({ mode: "AIR", amount: 45000, seatClass: "NORMAL" });
-    expect(result.status).toBe("APPROVED");
-    expect(result.acceptedAmount).toBe(45000);
+  it("선박/항공은 좌석등급 메뉴 없이 입력 금액 그대로 항상 인정", () => {
+    const air = verifyTransportManual({ mode: "AIR", amount: 45000 });
+    expect(air.status).toBe("APPROVED");
+    expect(air.acceptedAmount).toBe(45000);
+
+    const ship = verifyTransportManual({ mode: "SHIP", amount: 30000 });
+    expect(ship.status).toBe("APPROVED");
+    expect(ship.acceptedAmount).toBe(30000);
   });
 
-  it("항공: 제한 등급(비즈니스/퍼스트) -> 반려", () => {
-    const result = verifyTransportManual({ mode: "AIR", amount: 45000, seatClass: "RESTRICTED" });
-    expect(result.status).toBe("REJECTED");
-    expect(result.failedCheckId).toBe("class_restriction");
-  });
-
-  it("선박: 제한 등급(1등실/특실) -> 반려", () => {
-    const result = verifyTransportManual({ mode: "SHIP", amount: 30000, seatClass: "RESTRICTED" });
-    expect(result.status).toBe("REJECTED");
-    expect(result.failedCheckId).toBe("class_restriction");
-  });
-
-  it("정액정산 대상(고속철도)은 좌석등급과 무관하게 항상 인정", () => {
-    const result = verifyTransportManual({ mode: "RAIL", amount: 0, seatClass: "RESTRICTED" });
+  it("정액정산 대상(고속철도)은 금액과 무관하게 항상 인정, 인정금액은 표시하지 않음", () => {
+    const result = verifyTransportManual({ mode: "RAIL", amount: 0 });
     expect(result.status).toBe("APPROVED");
     expect(result.acceptedAmount).toBeNull();
-  });
-
-  it("날짜 검사는 하지 않는다(사전 결제 문제로 OCR 모드와 동일하게 생략)", () => {
-    // datetime 자체를 입력받지 않으므로, 출장기간과 무관하게 판정된다.
-    const result = verifyTransportManual({ mode: "SHIP", amount: 30000, seatClass: "NORMAL" });
-    expect(result.status).toBe("APPROVED");
   });
 });
 

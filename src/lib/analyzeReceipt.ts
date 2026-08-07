@@ -45,11 +45,6 @@ export type AnalyzeReceiptInput = {
    * 하므로 날짜뿐 아니라 시각까지 받는다.
    */
   manualDatetime?: string | null;
-  /**
-   * 자동정산 미사용 출장의 교통(선박·항공) 항목에서 사용자가 직접 선택한 좌석등급 -
-   * RESTRICTED면 규정상 인정되지 않는 등급이라 바로 반려된다. (2026-08-07)
-   */
-  manualSeatClass?: "NORMAL" | "RESTRICTED" | null;
 };
 
 export type AnalyzeReceiptOutput = {
@@ -203,7 +198,6 @@ export async function analyzeReceipt(input: AnalyzeReceiptInput): Promise<Analyz
       verdict = verifyTransportManual({
         mode: input.transportMode as "SHIP" | "AIR" | "RAIL" | "PRIVATE_CAR" | "BUS",
         amount: amount ?? 0,
-        seatClass: input.manualSeatClass ?? "NORMAL",
       });
     } else if (input.category === "BREAKFAST" && manualDateIso && amount !== null) {
       verdict = verifyBreakfastManual({

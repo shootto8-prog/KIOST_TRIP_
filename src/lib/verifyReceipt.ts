@@ -580,23 +580,19 @@ export function verifyBreakfastManual(input: ManualBreakfastInput): Verification
 export type ManualTransportInput = {
   mode: "SHIP" | "AIR" | "RAIL" | "PRIVATE_CAR" | "BUS";
   amount: number;
-  seatClass: "NORMAL" | "RESTRICTED";
 };
 
 /**
  * 날짜(탑승/이용일시) 검사는 하지 않는다 - OCR 모드에서 항공/선박이 사전 결제 문제로 이미
  * 제외한 것과 같은 이유로(2026-08-04 결정사항 1), 수동입력 모드에서도 별도 일시 입력을
- * 받지 않기로 했다. 좌석등급은 사용자가 직접 선택하므로 텍스트 인식 없이 바로 판정 가능하다.
+ * 받지 않는다. 좌석등급 선택 메뉴는 임원 등 극소수만 해당하는 예외라 메뉴를 따로 두지 않기로
+ * 하고 제거했다 - 선박/항공도 정액정산 교통수단과 마찬가지로 판정 없이 입력 금액 그대로
+ * 인정한다. (2026-08-07)
  */
 export function verifyTransportManual(input: ManualTransportInput): VerificationResult {
   const regulationRef = rules.transport.regulation_ref;
   if (isFlatRateTransportMode(input.mode)) {
     return { status: "APPROVED", acceptedAmount: null, message: FLAT_RATE_MESSAGE, failedCheckId: null, regulationRef };
-  }
-
-  const modeRules: ModeRules = input.mode === "SHIP" ? rules.transport.ship : rules.transport.air;
-  if (input.seatClass === "RESTRICTED") {
-    return rejected(getCheckMessage(modeRules.checks, "class_restriction"), "class_restriction", regulationRef);
   }
 
   return { status: "APPROVED", acceptedAmount: input.amount, message: null, failedCheckId: null, regulationRef };

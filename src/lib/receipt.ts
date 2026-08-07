@@ -10,7 +10,6 @@ export type ReceiptItem = {
   images: { id: string; order: number }[];
   createdAt: string;
   transportMode?: "SHIP" | "AIR" | "RAIL" | "PRIVATE_CAR" | "BUS" | null;
-  seatClass?: "NORMAL" | "RESTRICTED" | null;
   ocrStatus: "PENDING" | "DONE" | "FAILED";
   ocrText: string | null;
   ocrAmountGuess: number | null;
@@ -34,7 +33,6 @@ export function toReceiptItem(r: Receipt & { images: ReceiptImage[] }): ReceiptI
       .map((img) => ({ id: img.id, order: img.order })),
     createdAt: r.createdAt.toISOString(),
     transportMode: r.transportMode,
-    seatClass: r.seatClass,
     ocrStatus: r.ocrStatus,
     ocrText: r.ocrText,
     ocrAmountGuess: r.ocrAmountGuess,

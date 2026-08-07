@@ -6,7 +6,7 @@ import { prisma } from "./prisma";
 import {
   CATEGORY_LABEL,
   STOP_TYPE_LABEL,
-  VERDICT_LABEL,
+  verdictDisplayLabel,
   TRANSPORT_MODE_LABEL,
   formatDate,
   formatDateTime,
@@ -250,25 +250,38 @@ function countOrDash(count: number, suffix: string): string {
   return count > 0 ? `${count}${suffix}` : "-";
 }
 
+/**
+ * 자동정산 미사용 출장의 조식/숙박/교통(선박·항공)은 판정이 아니라 사용자가 직접 입력한
+ * 값이지만, 담당자가 실제 신청 건수·금액을 한눈에 봐야 하므로 PDF에는 "N건 제출, 금액원"
+ * 형태로 함께 보여준다(2026-08-07). 입력값이 없는 경우(금액 0)는 건수만 표기한다.
+ */
+function countAndAmount(count: number, amount: number): string {
+  if (count === 0) return "-";
+  return amount > 0 ? `${count}건 제출, ${formatKrw(amount)}` : `${count}건 제출`;
+}
+
 type TransportSummaryItem = { transportMode: string | null; verdictAmount: number | null };
 
 /**
- * 교통 항목의 "내용" 칸: 항공/선박은 인정금액을, 고속철도/승용/버스는 정액정산이라 금액이
- * 없으므로 그 교통수단에 서류를 제출했다는 사실 자체를 항목명으로 표기한다(예: "고속철도").
- * 둘 다 있으면 함께 나열한다.
+ * 교통 항목의 "내용" 칸: 항공/선박은 (자동정산이든 사용자 직접입력이든) 금액을, 고속철도/승용/
+ * 버스는 정액정산이라 금액이 없으므로 그 교통수단에 서류를 제출했다는 사실 자체를 항목명으로
+ * 표기한다(예: "고속철도"). 자동정산 미사용 출장의 선박/항공은 건수도 함께 보여준다
+ * (2026-08-07 - 사용자 입력값이 PDF에 안 보인다는 실사용 피드백 반영).
  */
 function buildTransportCell(items: TransportSummaryItem[], autoSettlement: boolean): string {
   if (items.length === 0) return "-";
-  if (!autoSettlement) return `${items.length}건 제출`;
   const flatModes = new Set<string>(FLAT_RATE_TRANSPORT_MODES);
-  const amountSum = items
-    .filter((r) => r.transportMode === "AIR" || r.transportMode === "SHIP")
-    .reduce((s, r) => s + (r.verdictAmount ?? 0), 0);
+  const nonFlatItems = items.filter((r) => r.transportMode === "AIR" || r.transportMode === "SHIP");
+  const amountSum = nonFlatItems.reduce((s, r) => s + (r.verdictAmount ?? 0), 0);
   const flatModesUsed = Array.from(
     new Set(items.filter((r) => r.transportMode && flatModes.has(r.transportMode)).map((r) => r.transportMode as string))
   );
   const parts: string[] = [];
-  if (amountSum > 0) parts.push(formatKrw(amountSum));
+  if (autoSettlement) {
+    if (amountSum > 0) parts.push(formatKrw(amountSum));
+  } else if (nonFlatItems.length > 0) {
+    parts.push(countAndAmount(nonFlatItems.length, amountSum));
+  }
   for (const m of flatModesUsed) parts.push(TRANSPORT_MODE_LABEL[m] ?? m);
   return parts.length > 0 ? parts.join(", ") : "-";
 }
@@ -311,14 +324,14 @@ export async function generateTripPdf(tripId: string): Promise<Uint8Array> {
       label: CATEGORY_LABEL.BREAKFAST,
       value: trip.autoSettlement
         ? amountOrDash(sumByCategory.BREAKFAST)
-        : countOrDash(byCategory.BREAKFAST.length, "건 제출"),
+        : countAndAmount(byCategory.BREAKFAST.length, sumByCategory.BREAKFAST),
     },
     { label: CATEGORY_LABEL.TRANSPORT, value: buildTransportCell(byCategory.TRANSPORT, trip.autoSettlement) },
     {
       label: CATEGORY_LABEL.LODGING,
       value: trip.autoSettlement
         ? amountOrDash(sumByCategory.LODGING)
-        : countOrDash(byCategory.LODGING.length, "건 제출"),
+        : countAndAmount(byCategory.LODGING.length, sumByCategory.LODGING),
     },
     { label: "현장사진", value: countOrDash(byCategory.FIELD.length, "건") },
   ]);
@@ -348,24 +361,40 @@ export async function generateTripPdf(tripId: string): Promise<Uint8Array> {
     w.text(`${CATEGORY_LABEL[c]} 세부내역 (${items.length}건)`, { size: 13, bold: true, gap: 20 });
 
     for (const r of items) {
-      const statusLabel = VERDICT_LABEL[r.verdictStatus];
-      const statusColor =
-        r.verdictStatus === "REJECTED" ? COLOR_REJECTED : r.verdictStatus === "PARTIAL" ? COLOR_PARTIAL : COLOR_TEXT;
+      const statusLabel = verdictDisplayLabel(r.verdictStatus, trip.autoSettlement, r.category, r.transportMode);
+      // 자동정산 미사용 출장은 "불인정=빨강"처럼 최종 확정을 암시하는 색을 안 쓴다 - 확인요청은
+      // PARTIAL과 같은 주황색으로만 표시한다(REJECTED도 여기 포함).
+      const statusColor = !trip.autoSettlement
+        ? r.verdictStatus === "PARTIAL" || r.verdictStatus === "REJECTED"
+          ? COLOR_PARTIAL
+          : COLOR_TEXT
+        : r.verdictStatus === "REJECTED"
+        ? COLOR_REJECTED
+        : r.verdictStatus === "PARTIAL"
+        ? COLOR_PARTIAL
+        : COLOR_TEXT;
+      const amountLabel = trip.autoSettlement ? "인정금액" : "확인금액";
 
       w.ensureSpace(60);
-      // 자동정산 미사용 출장은 OCR을 아예 안 돌려 상호명/금액이 항상 비어 있다 - "인식 안 됨"을
-      // 나열하면 마치 인식에 실패한 것처럼 보이니, 접수 시각만 보여준다.
+      // OCR을 안 돌린 항목(자동정산 미사용 전체, 또는 자동정산 사용이어도 현장사진/정액정산
+      // 교통수단)은 상호명/인식금액이 항상 비어 있다 - "인식 안 됨"을 나열하면 마치 인식에
+      // 실패한 것처럼 보이니, 접수 시각과 확정 금액만 보여준다.
+      const ocrSkipped = r.ocrStatus === "PENDING";
       w.text(
-        r.verdictStatus === "SUBMITTED" ? `[${statusLabel}]` : `[${statusLabel}] ${r.ocrMerchantGuess ?? "상호명 인식 안 됨"}`,
+        ocrSkipped ? `[${statusLabel}]` : `[${statusLabel}] ${r.ocrMerchantGuess ?? "상호명 인식 안 됨"}`,
         { size: 11.5, bold: true, color: statusColor, gap: 16 }
       );
-      if (r.verdictStatus === "SUBMITTED") {
-        w.text(`  제출일시: ${formatDateTime(r.createdAt)}`, { size: 10, color: COLOR_MUTED, gap: 15 });
+      if (ocrSkipped) {
+        w.text(
+          `  제출일시: ${formatDateTime(r.createdAt)}` +
+            (r.verdictAmount !== null ? `   ${amountLabel}: ${r.verdictAmount.toLocaleString("ko-KR")}원` : ""),
+          { size: 10, color: COLOR_MUTED, gap: 15 }
+        );
       } else {
         w.text(
           `  일시: ${r.ocrDateGuess ? formatDateTime(r.ocrDateGuess) : "인식 안 됨"}   ` +
             `인식금액: ${r.ocrAmountGuess !== null ? r.ocrAmountGuess.toLocaleString("ko-KR") + "원" : "인식 안 됨"}   ` +
-            `인정금액: ${r.verdictAmount !== null ? r.verdictAmount.toLocaleString("ko-KR") + "원" : "-"}`,
+            `${amountLabel}: ${r.verdictAmount !== null ? r.verdictAmount.toLocaleString("ko-KR") + "원" : "-"}`,
           { size: 10, color: COLOR_MUTED, gap: 15 }
         );
       }
