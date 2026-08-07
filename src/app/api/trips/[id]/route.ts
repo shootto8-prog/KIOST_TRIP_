@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { del } from "@vercel/blob";
 import { parseYmd, INVALID_DATE_MESSAGE } from "@/lib/ymdDate";
+import { assertTripOwner } from "@/lib/ownerGuard";
 
 type StopInput = {
   type: "DEPARTURE" | "STOPOVER" | "ARRIVAL";
@@ -21,17 +22,17 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (!trip) {
     return NextResponse.json({ error: "출장 정보를 찾을 수 없습니다." }, { status: 404 });
   }
+  const ownerError = await assertTripOwner(trip.ownerEmail);
+  if (ownerError) {
+    return NextResponse.json({ error: ownerError.error }, { status: ownerError.status });
+  }
 
   const body = await req.json().catch(() => ({}));
 
-  if (body.ownerEmail !== undefined) {
-    const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (typeof body.ownerEmail !== "string" || !EMAIL_PATTERN.test(body.ownerEmail.trim())) {
-      return NextResponse.json({ error: "정산 결과를 받을 이메일 주소를 올바르게 입력해 주세요." }, { status: 400 });
-    }
-    await prisma.trip.update({ where: { id }, data: { ownerEmail: body.ownerEmail.trim() } });
-  }
-
+  // ownerEmail은 이 라우트로 바꿀 수 없다 - 소유자를 바꾸는 것은 그 자체로 접근 권한을 넘기는
+  // 행위라, id만 알면(정산 메일 첨부파일명 등으로 노출될 수 있음) 남의 출장을 가로챌 수 있는
+  // 구멍이 된다(2026-08-07 안정성 재검토에서 발견). 프론트(TripForm)가 편집 모드에서도 이 값을
+  // 계속 실어 보내지만 실제로 바뀔 필요가 없는 값이라 서버는 조용히 무시한다.
   if (body.status !== undefined) {
     if (body.status !== "ACTIVE" && body.status !== "COMPLETED") {
       return NextResponse.json({ error: "유효하지 않은 상태입니다." }, { status: 400 });
@@ -107,6 +108,10 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
   });
   if (!trip) {
     return NextResponse.json({ error: "출장 정보를 찾을 수 없습니다." }, { status: 404 });
+  }
+  const ownerError = await assertTripOwner(trip.ownerEmail);
+  if (ownerError) {
+    return NextResponse.json({ error: ownerError.error }, { status: ownerError.status });
   }
 
   const blobUrls = [
