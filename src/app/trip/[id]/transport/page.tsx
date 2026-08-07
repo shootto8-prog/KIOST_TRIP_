@@ -25,9 +25,8 @@ export default async function TransportPage({
     <main className="space-y-6">
       <CategoryPageHeader
         tripId={id}
-        icon={<IconTransport className="size-6 text-blue-600 dark:text-blue-400" />}
+        icon={<IconTransport className="size-12" />}
         title="교통"
-        accent="bg-blue-500/10"
       />
       <TransportTabs
         tripId={id}
