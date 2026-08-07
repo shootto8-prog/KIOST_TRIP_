@@ -1,12 +1,13 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { formatDate } from "@/lib/format";
-import TripForm from "@/components/TripForm";
+import NewTripSection from "@/components/NewTripSection";
 import TripDeleteButton from "@/components/TripDeleteButton";
 import IdentityPrompt from "@/components/IdentityPrompt";
 import IdentitySwitcher from "@/components/IdentitySwitcher";
+import ThemeToggle from "@/components/ThemeToggle";
 import { getOwnerEmail } from "@/lib/identity";
-import { IconBreakfast, IconTransport, IconLodging, IconPhoto } from "@/components/icons";
+import { IconBreakfast, IconTransport, IconLodging, IconFieldPhoto } from "@/components/icons";
 
 // 출장 목록은 매 요청마다 최신 상태를 보여줘야 한다 - 빌드 시점에 정적으로 고정되면
 // 새로 등록/종료된 출장이 재배포 전까지 반영되지 않는다.
@@ -18,13 +19,16 @@ export default async function HomePage() {
   if (!ownerEmail) {
     return (
       <main className="space-y-6">
-        <header>
-          <h1 className="text-[28px] font-bold tracking-tight text-neutral-900 dark:text-neutral-100">
-            정총무<span className="text-brand">1.0</span>
-          </h1>
-          <p className="mt-1 text-[14px] text-neutral-500">
-            KIOST 국내여비 간편서비스 · 출장정보를 등록하고 조식·교통·숙박·현장사진을 관리하세요.
-          </p>
+        <header className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h1 className="text-[28px] font-bold tracking-tight text-neutral-900 dark:text-neutral-100">
+              정총무<span className="text-brand">1.0</span>
+            </h1>
+            <p className="mt-1 text-[14px] text-neutral-500">
+              출장정보를 등록하고 조식·교통·숙박·현장사진을 관리하세요.
+            </p>
+          </div>
+          <ThemeToggle />
         </header>
         <IdentityPrompt />
       </main>
@@ -46,17 +50,21 @@ export default async function HomePage() {
   ]);
 
   return (
-    <main className="space-y-6">
-      <header>
-        <h1 className="text-[28px] font-bold tracking-tight text-neutral-900 dark:text-neutral-100">
-          정총무<span className="text-brand">1.0</span>
-        </h1>
-        <p className="mt-1 text-[14px] text-neutral-500">
-          KIOST 국내여비 간편서비스 · 출장정보를 등록하고 조식·교통·숙박·현장사진을 관리하세요.
-        </p>
+    <main className="space-y-5">
+      <header className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h1 className="text-[28px] font-bold tracking-tight text-neutral-900 dark:text-neutral-100">
+            정총무<span className="text-brand">1.0</span>
+          </h1>
+          <p className="mt-1 text-[14px] text-neutral-500">
+            출장정보를 등록하고 조식·교통·숙박·현장사진을 관리하세요.
+          </p>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <ThemeToggle />
+          <IdentitySwitcher email={ownerEmail} />
+        </div>
       </header>
-
-      <IdentitySwitcher email={ownerEmail} />
 
       {activeTrips.length > 0 && (
         <section>
@@ -89,30 +97,30 @@ export default async function HomePage() {
                   <div className="mt-3 grid grid-cols-4 gap-2">
                     <Link
                       href={`/trip/${trip.id}/breakfast`}
-                      className="flex flex-col items-center gap-1.5 rounded-[20px] bg-amber-500/10 py-3 text-[12px] font-medium text-amber-700 ring-1 ring-inset ring-amber-500/15 active:scale-[0.97] dark:text-amber-400"
+                      className="flex flex-col items-center gap-1.5 rounded-[20px] py-3 text-[12px] font-medium text-neutral-600 active:scale-[0.97] dark:text-neutral-300"
                     >
-                      <IconBreakfast className="size-6" />
+                      <IconBreakfast className="size-10" />
                       조식
                     </Link>
                     <Link
                       href={`/trip/${trip.id}/transport`}
-                      className="flex flex-col items-center gap-1.5 rounded-[20px] bg-blue-500/10 py-3 text-[12px] font-medium text-blue-700 ring-1 ring-inset ring-blue-500/15 active:scale-[0.97] dark:text-blue-400"
+                      className="flex flex-col items-center gap-1.5 rounded-[20px] py-3 text-[12px] font-medium text-neutral-600 active:scale-[0.97] dark:text-neutral-300"
                     >
-                      <IconTransport className="size-6" />
+                      <IconTransport className="size-10" />
                       교통
                     </Link>
                     <Link
                       href={`/trip/${trip.id}/lodging`}
-                      className="flex flex-col items-center gap-1.5 rounded-[20px] bg-violet-500/10 py-3 text-[12px] font-medium text-violet-700 ring-1 ring-inset ring-violet-500/15 active:scale-[0.97] dark:text-violet-400"
+                      className="flex flex-col items-center gap-1.5 rounded-[20px] py-3 text-[12px] font-medium text-neutral-600 active:scale-[0.97] dark:text-neutral-300"
                     >
-                      <IconLodging className="size-6" />
+                      <IconLodging className="size-10" />
                       숙박
                     </Link>
                     <Link
                       href={`/trip/${trip.id}/field`}
-                      className="flex flex-col items-center gap-1.5 rounded-[20px] bg-rose-500/10 py-3 text-[12px] font-medium text-rose-700 ring-1 ring-inset ring-rose-500/15 active:scale-[0.97] dark:text-rose-400"
+                      className="flex flex-col items-center gap-1.5 rounded-[20px] py-3 text-[12px] font-medium text-neutral-600 active:scale-[0.97] dark:text-neutral-300"
                     >
-                      <IconPhoto className="size-6" />
+                      <IconFieldPhoto className="size-10" />
                       현장사진
                     </Link>
                   </div>
@@ -123,7 +131,7 @@ export default async function HomePage() {
         </section>
       )}
 
-      <TripForm ownerEmail={ownerEmail} />
+      <NewTripSection ownerEmail={ownerEmail} />
 
       {completedTrips.length > 0 && (
         <section>

@@ -1,5 +1,9 @@
 @import "tailwindcss";
 
+/* 다크모드를 OS 설정이 아니라 .dark 클래스 유무로 판단하게 한다 - 사용자가 직접 고른 값을
+   localStorage에 저장해두고, 처음 방문 시에는 OS 설정을 그대로 따라간다(ThemeToggle 참고). */
+@custom-variant dark (&:where(.dark, .dark *));
+
 @theme {
   --color-brand: #3770bf;
   --color-brand-dark: #245c9f;
@@ -8,6 +12,10 @@
 
 :root {
   color-scheme: light dark;
+}
+
+:root.dark {
+  color-scheme: dark;
 }
 
 html,
@@ -23,11 +31,9 @@ body {
   color: #102033;
 }
 
-@media (prefers-color-scheme: dark) {
-  body {
-    background-color: #0a1220;
-    color: #f3f6fb;
-  }
+:root.dark body {
+  background-color: #0a1220;
+  color: #f3f6fb;
 }
 
 /* 브랜드 컬러가 은은하게 번지는 그림자 - klocal 참고, 검정 그림자 대신 브랜드 톤으로 깊이감을 준다 */
@@ -40,11 +46,29 @@ body {
   box-shadow: 0 14px 34px -18px rgb(16 32 51 / 0.35);
 }
 
-@media (prefers-color-scheme: dark) {
-  .shadow-glow {
-    box-shadow: 0 18px 40px -14px rgb(0 0 0 / 0.5);
-  }
-  .shadow-soft {
-    box-shadow: 0 14px 34px -18px rgb(0 0 0 / 0.6);
-  }
+:root.dark .shadow-glow {
+  box-shadow: 0 18px 40px -14px rgb(0 0 0 / 0.5);
+}
+
+:root.dark .shadow-soft {
+  box-shadow: 0 14px 34px -18px rgb(0 0 0 / 0.6);
+}
+
+/* 모든 화면 배경에 깔리는 KIOST 심볼마크 워터마크 - 내용을 가리면 안 되므로 항상 아주
+   낮은 불투명도로만 보이고, 다크모드에서는 어두운 배경에 묻히지 않도록 밝기를 살짝 올린다. */
+.watermark-logo {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-image: url("/kiost-mark.png");
+  background-repeat: no-repeat;
+  background-position: center 16%;
+  background-size: min(62vw, 460px);
+  opacity: 0.05;
+}
+
+:root.dark .watermark-logo {
+  opacity: 0.1;
+  filter: brightness(2.4) saturate(0.7);
 }
