@@ -118,6 +118,7 @@ export async function POST(req: NextRequest) {
   let manualAmount: number | null = null;
   let manualDatetime: string | null = null;
   if (!trip.autoSettlement) {
+    const isNonFlatTransport = category === "TRANSPORT" && !(transportMode && isFlatRateTransportMode(transportMode));
     const needsAmount = category !== "FIELD" && !(transportMode && isFlatRateTransportMode(transportMode));
     if (needsAmount) {
       const parsedAmount = typeof manualAmountRaw === "number" ? manualAmountRaw : Number(manualAmountRaw);
@@ -131,6 +132,12 @@ export async function POST(req: NextRequest) {
         return failWith("결제 일시를 입력해 주세요.", 400);
       }
       manualDatetime = manualDatetimeRaw;
+    }
+    // 선박/항공은 규정상 좌석등급(class_restriction)을 확인해야 하므로 명시적 선택이 필요하다 -
+    // 미선택(seatClass가 여기서 계속 null)을 "일반석"으로 조용히 간주하면 실제로는 제한 등급인데도
+    // 통과시킬 위험이 있다. (GAS의 필수입력 검증 그대로 참고, 2026-08-07)
+    if (isNonFlatTransport && !seatClass) {
+      return failWith("좌석등급을 선택해 주세요.", 400);
     }
   }
 
@@ -262,9 +269,9 @@ export async function POST(req: NextRequest) {
 
   // 숙박 상한은 영수증 1건이 아니라 출장 단위로 누적 적용한다 - 같은 출장의 다른 숙박
   // 영수증들이 이미 인정받은 금액을 먼저 구해, 남은 한도까지만 이번 영수증을 인정하게 한다.
-  // 자동정산을 안 쓰는 출장은 애초에 판정을 안 하니 이 조회 자체가 불필요하다.
+  // 자동정산 미사용 출장도 수동입력 금액에 이 누적 상한을 그대로 적용한다(2026-08-07).
   const lodgingAlreadyAcceptedInTrip =
-    category === "LODGING" && trip.autoSettlement ? await sumAcceptedLodgingInTrip(tripId) : 0;
+    category === "LODGING" ? await sumAcceptedLodgingInTrip(tripId) : 0;
 
   let analysis: Awaited<ReturnType<typeof analyzeReceipt>>;
   try {
@@ -281,6 +288,7 @@ export async function POST(req: NextRequest) {
       autoSettlement: trip.autoSettlement,
       manualAmount,
       manualDatetime,
+      manualSeatClass: seatClass,
     });
   } catch (err) {
     console.error("Receipt analysis failed:", err);
