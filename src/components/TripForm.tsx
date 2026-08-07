@@ -168,12 +168,10 @@ export default function TripForm({
       )}
 
       <div className="mt-4 rounded-2xl border border-black/5 bg-neutral-50 p-3 dark:border-white/10 dark:bg-white/5">
-        <p className="text-[13px] font-medium text-neutral-500">
-          출장기간 <span className="font-normal text-neutral-400">(복귀 완료일까지 포함)</span>
-        </p>
-        <div className="mt-2 flex flex-wrap items-center gap-2">
+        <p className="text-[13px] font-medium text-neutral-500">출장기간</p>
+        <div className="mt-2 flex flex-nowrap items-center gap-1.5 overflow-x-auto">
           <DateYMDInput value={startDate} onChange={setStartDate} />
-          <span className="text-neutral-400">~</span>
+          <span className="shrink-0 text-neutral-400">~</span>
           <DateYMDInput value={endDate} onChange={setEndDate} />
         </div>
       </div>
@@ -188,7 +186,7 @@ export default function TripForm({
               <p className="mt-0.5 text-[12px] text-neutral-400">
                 {autoSettlement
                   ? "사진을 올리면 AI가 규정에 따라 인정/불인정을 자동으로 판정합니다."
-                  : "AI 판정 없이 증빙 사진만 제출합니다. 담당자가 직접 확인해 정산합니다."}
+                  : "AI 판정 없이 증빙서류만 제출합니다."}
               </p>
             </div>
             <button
@@ -214,47 +212,72 @@ export default function TripForm({
         </div>
       )}
 
-      <div className="mt-4 space-y-2">
-        {stops.map((s) => (
-          <div
-            key={s.key}
-            className="flex flex-wrap items-center gap-2 rounded-2xl border border-black/5 bg-neutral-50 p-2 pl-3 dark:border-white/10 dark:bg-white/5"
-          >
-            <span
-              className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-medium ${badgeStyle[s.type]}`}
-            >
+      {(() => {
+        const departureStop = stops.find((s) => s.type === "DEPARTURE");
+        const arrivalStop = stops.find((s) => s.type === "ARRIVAL");
+        const stopoverStops = stops.filter((s) => s.type === "STOPOVER");
+        const stopField = (s: Stop) => (
+          <div className="flex min-w-0 flex-1 items-center gap-2 rounded-2xl border border-black/5 bg-neutral-50 p-2 pl-3 dark:border-white/10 dark:bg-white/5">
+            <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-medium ${badgeStyle[s.type]}`}>
               {badgeLabel[s.type]}
             </span>
             <input
               type="text"
               required
-              placeholder="장소 (예: 부산)"
+              placeholder={s.type === "ARRIVAL" ? "장소 (예: 서울)" : "장소 (예: 부산)"}
               value={s.location}
               onChange={(e) => updateStop(s.key, { location: e.target.value })}
               className="min-w-0 flex-1 rounded-xl bg-transparent px-2 py-2 text-[15px] text-neutral-900 outline-none placeholder:text-neutral-400 dark:text-neutral-100"
             />
-            {s.type === "STOPOVER" && (
-              <button
-                type="button"
-                onClick={() => removeStopover(s.key)}
-                className="shrink-0 rounded-full p-2 text-neutral-400 hover:bg-black/5 hover:text-red-500 dark:hover:bg-white/10"
-                aria-label="경유지 삭제"
-              >
-                <IconTrash />
-              </button>
-            )}
           </div>
-        ))}
-      </div>
-
-      <button
-        type="button"
-        onClick={addStopover}
-        className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-2xl border border-dashed border-brand/20 py-2.5 text-[14px] font-medium text-brand hover:bg-brand/5 dark:border-white/15 dark:text-brand-light"
-      >
-        <IconPlus />
-        경유지 추가
-      </button>
+        );
+        return (
+          <div className="mt-4 space-y-2">
+            {departureStop && arrivalStop && (
+              <div className="flex items-center gap-1.5">
+                {stopField(departureStop)}
+                <span className="shrink-0 text-neutral-300 dark:text-neutral-600">→</span>
+                {stopField(arrivalStop)}
+                <button
+                  type="button"
+                  onClick={addStopover}
+                  aria-label="경유지 추가"
+                  title="경유지 추가"
+                  className="flex size-9 shrink-0 items-center justify-center rounded-full border border-dashed border-brand/25 text-brand hover:bg-brand/5 dark:border-white/20 dark:text-brand-light"
+                >
+                  <IconPlus className="size-4" />
+                </button>
+              </div>
+            )}
+            {stopoverStops.map((s) => (
+              <div
+                key={s.key}
+                className="flex items-center gap-2 rounded-2xl border border-black/5 bg-neutral-50 p-2 pl-3 dark:border-white/10 dark:bg-white/5"
+              >
+                <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-medium ${badgeStyle.STOPOVER}`}>
+                  {badgeLabel.STOPOVER}
+                </span>
+                <input
+                  type="text"
+                  required
+                  placeholder="장소 (예: 부산)"
+                  value={s.location}
+                  onChange={(e) => updateStop(s.key, { location: e.target.value })}
+                  className="min-w-0 flex-1 rounded-xl bg-transparent px-2 py-2 text-[15px] text-neutral-900 outline-none placeholder:text-neutral-400 dark:text-neutral-100"
+                />
+                <button
+                  type="button"
+                  onClick={() => removeStopover(s.key)}
+                  className="shrink-0 rounded-full p-2 text-neutral-400 hover:bg-black/5 hover:text-red-500 dark:hover:bg-white/10"
+                  aria-label="경유지 삭제"
+                >
+                  <IconTrash />
+                </button>
+              </div>
+            ))}
+          </div>
+        );
+      })()}
 
       {error && (
         <p className="mt-3 text-[13px] text-red-500">{error}</p>

@@ -80,54 +80,56 @@ export default function DateYMDInput({
   }`;
 
   return (
-    <div className="flex shrink-0 flex-wrap items-center gap-1">
-      <input
-        type="text"
-        inputMode="numeric"
-        placeholder="YYYY"
-        value={parts.y}
-        onChange={(e) => set("y", e.target.value, 4)}
-        className={`w-14 ${inputClass}`}
-      />
-      <span className="text-[13px] text-neutral-400">년</span>
-      <input
-        type="text"
-        inputMode="numeric"
-        placeholder="MM"
-        value={parts.m}
-        onChange={(e) => set("m", e.target.value, 2)}
-        className={`w-9 ${inputClass}`}
-      />
-      <span className="text-[13px] text-neutral-400">월</span>
-      <input
-        type="text"
-        inputMode="numeric"
-        placeholder="DD"
-        value={parts.d}
-        onChange={(e) => set("d", e.target.value, 2)}
-        className={`w-9 ${inputClass}`}
-      />
-      <span className="text-[13px] text-neutral-400">일</span>
+    <div className="shrink-0">
+      <div className="flex flex-nowrap items-center gap-1">
+        <input
+          type="text"
+          inputMode="numeric"
+          placeholder="YYYY"
+          value={parts.y}
+          onChange={(e) => set("y", e.target.value, 4)}
+          className={`w-14 shrink-0 ${inputClass}`}
+        />
+        <span className="shrink-0 text-[13px] text-neutral-400">년</span>
+        <input
+          type="text"
+          inputMode="numeric"
+          placeholder="MM"
+          value={parts.m}
+          onChange={(e) => set("m", e.target.value, 2)}
+          className={`w-9 shrink-0 ${inputClass}`}
+        />
+        <span className="shrink-0 text-[13px] text-neutral-400">월</span>
+        <input
+          type="text"
+          inputMode="numeric"
+          placeholder="DD"
+          value={parts.d}
+          onChange={(e) => set("d", e.target.value, 2)}
+          className={`w-9 shrink-0 ${inputClass}`}
+        />
+        <span className="shrink-0 text-[13px] text-neutral-400">일</span>
 
-      <button
-        type="button"
-        onClick={openPicker}
-        aria-label="달력에서 날짜 선택"
-        className="flex size-8 shrink-0 items-center justify-center rounded-lg text-neutral-400 hover:bg-brand/10 hover:text-brand dark:hover:bg-white/10 dark:hover:text-brand-light"
-      >
-        <IconCalendar />
-      </button>
-      <input
-        ref={pickerRef}
-        type="date"
-        value={parts.y && parts.m && parts.d ? `${parts.y}-${parts.m}-${parts.d}` : ""}
-        onChange={(e) => onPickerChange(e.target.value)}
-        tabIndex={-1}
-        aria-hidden="true"
-        className="sr-only"
-      />
+        <button
+          type="button"
+          onClick={openPicker}
+          aria-label="달력에서 날짜 선택"
+          className="flex size-8 shrink-0 items-center justify-center rounded-lg text-neutral-400 hover:bg-brand/10 hover:text-brand dark:hover:bg-white/10 dark:hover:text-brand-light"
+        >
+          <IconCalendar />
+        </button>
+        <input
+          ref={pickerRef}
+          type="date"
+          value={parts.y && parts.m && parts.d ? `${parts.y}-${parts.m}-${parts.d}` : ""}
+          onChange={(e) => onPickerChange(e.target.value)}
+          tabIndex={-1}
+          aria-hidden="true"
+          className="sr-only"
+        />
+      </div>
       {invalid && (
-        <p className="w-full text-[12px] text-red-500">날짜를 확인해 주세요 (없는 날짜입니다).</p>
+        <p className="mt-1 text-[12px] text-red-500">날짜를 확인해 주세요 (없는 날짜입니다).</p>
       )}
     </div>
   );

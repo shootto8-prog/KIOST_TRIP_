@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { upload } from "@vercel/blob/client";
 import { IconCamera, IconPhoto, IconTrash, IconPdf, IconPlus } from "./icons";
 import type { ReceiptItem } from "@/lib/receipt";
-import { VERDICT_LABEL } from "@/lib/format";
+import { verdictDisplayLabel, isManuallyReviewedCategory } from "@/lib/format";
 import { FLAT_RATE_TRANSPORT_MODES } from "@/lib/verifyReceipt";
 import { getKstParts } from "@/lib/kst";
 
@@ -44,7 +44,7 @@ function toKstDatetimeLocalValue(epochMs: number): string {
   return `${year}-${pad(month + 1)}-${pad(day)}T${pad(hour)}:${pad(minute)}`;
 }
 
-const VERDICT_BADGE_CLASS: Record<ReceiptItem["verdictStatus"], string> = {
+const VERDICT_BADGE_CLASS_AUTO: Record<ReceiptItem["verdictStatus"], string> = {
   APPROVED: "bg-emerald-500/90 text-white",
   PARTIAL: "bg-amber-500/90 text-white",
   REJECTED: "bg-red-500/90 text-white",
@@ -52,6 +52,48 @@ const VERDICT_BADGE_CLASS: Record<ReceiptItem["verdictStatus"], string> = {
   // 인정/불인정과 헷갈리지 않도록 판정 색(초록/빨강/주황)과 다른 중립적인 파란색을 쓴다.
   SUBMITTED: "bg-blue-500/90 text-white",
 };
+
+/**
+ * 자동정산 미사용 출장은 "인정(초록)/불인정(빨강)"처럼 최종 확정을 암시하는 색을 쓰지 않는다.
+ * 문제 없으면(확인) 파란색, 담당자 확인이 필요하면(확인요청) 주황색만 쓴다 - 반려(REJECTED)도
+ * "빨강 = 거부됨"이 아니라 "확인요청"과 똑같이 담당자가 봐야 한다는 의미라 같은 색으로 묶는다.
+ */
+function verdictBadgeClass(receipt: ReceiptItem, autoSettlement: boolean): string {
+  if (autoSettlement) return VERDICT_BADGE_CLASS_AUTO[receipt.verdictStatus];
+  if (!isManuallyReviewedCategory(receipt.category, receipt.transportMode)) return "bg-blue-500/90 text-white";
+  if (receipt.verdictStatus === "APPROVED") return "bg-blue-500/90 text-white";
+  if (receipt.verdictStatus === "PARTIAL" || receipt.verdictStatus === "REJECTED") {
+    return "bg-amber-500/90 text-white";
+  }
+  return "bg-blue-500/90 text-white";
+}
+
+function verdictBannerBgClass(receipt: ReceiptItem, autoSettlement: boolean): string {
+  if (autoSettlement) {
+    return receipt.verdictStatus === "APPROVED"
+      ? "bg-emerald-500/10"
+      : receipt.verdictStatus === "PARTIAL"
+      ? "bg-amber-500/10"
+      : receipt.verdictStatus === "REJECTED"
+      ? "bg-red-500/10"
+      : receipt.verdictStatus === "SUBMITTED"
+      ? "bg-blue-500/10"
+      : "bg-neutral-500/10";
+  }
+  if (isManuallyReviewedCategory(receipt.category, receipt.transportMode) &&
+    (receipt.verdictStatus === "PARTIAL" || receipt.verdictStatus === "REJECTED")) {
+    return "bg-amber-500/10";
+  }
+  return "bg-blue-500/10";
+}
+
+/** "OOO원" 뒤에 붙이는 짧은 접미사 - 자동정산 미사용이면 뱃지와 같은 단어("확인"/"확인요청")를
+ * 그대로 붙여 일관되게 보이게 한다. 판정 자체가 없는 항목(제출)에는 접미사를 붙이지 않는다. */
+function amountSuffix(receipt: ReceiptItem, autoSettlement: boolean): string {
+  if (autoSettlement) return receipt.verdictStatus !== "SUBMITTED" ? " 인정" : "";
+  const label = verdictDisplayLabel(receipt.verdictStatus, false, receipt.category, receipt.transportMode);
+  return label === "제출" ? "" : ` ${label}`;
+}
 
 /**
  * "다시 인식 시도" 버튼을 띄워야 하는 판정들. 인식 자체가 안 된 경우(ocr_unavailable),
@@ -107,37 +149,25 @@ function VerdictBanner({
   receipt,
   onReanalyze,
   reanalyzing,
+  autoSettlement,
 }: {
   receipt: ReceiptItem;
   onReanalyze: (id: string) => void;
   reanalyzing: boolean;
+  autoSettlement: boolean;
 }) {
   return (
-    <div
-      className={`rounded-2xl p-4 text-[13px] ${
-        receipt.verdictStatus === "APPROVED"
-          ? "bg-emerald-500/10"
-          : receipt.verdictStatus === "PARTIAL"
-          ? "bg-amber-500/10"
-          : receipt.verdictStatus === "REJECTED"
-          ? "bg-red-500/10"
-          : receipt.verdictStatus === "SUBMITTED"
-          ? "bg-blue-500/10"
-          : "bg-neutral-500/10"
-      }`}
-    >
+    <div className={`rounded-2xl p-4 text-[13px] ${verdictBannerBgClass(receipt, autoSettlement)}`}>
       <div className="flex items-center gap-2">
         <span
-          className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${VERDICT_BADGE_CLASS[receipt.verdictStatus]}`}
+          className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${verdictBadgeClass(receipt, autoSettlement)}`}
         >
-          {VERDICT_LABEL[receipt.verdictStatus]}
+          {verdictDisplayLabel(receipt.verdictStatus, autoSettlement, receipt.category, receipt.transportMode)}
         </span>
         {receipt.verdictAmount !== null && (
           <span className="text-[15px] font-bold text-neutral-900 dark:text-neutral-100">
             {receipt.verdictAmount.toLocaleString("ko-KR")}원
-            {/* SUBMITTED는 자동판정이 아니라 사람이 직접 입력한 금액이라 "인정"이라고 하면
-                오해를 준다 - 판정이 실제로 이뤄진 상태에서만 "인정"을 붙인다. */}
-            {receipt.verdictStatus !== "SUBMITTED" && " 인정"}
+            {amountSuffix(receipt, autoSettlement)}
           </span>
         )}
       </div>
@@ -194,16 +224,18 @@ function OcrDetailCard({
   receipt,
   onReanalyze,
   reanalyzing,
+  autoSettlement,
 }: {
   receipt: ReceiptItem;
   onReanalyze: (id: string) => void;
   reanalyzing: boolean;
+  autoSettlement: boolean;
 }) {
   const [showRaw, setShowRaw] = useState(false);
   const ocrSkipped = receipt.ocrStatus === "PENDING";
   return (
     <div className="space-y-3">
-      <VerdictBanner receipt={receipt} onReanalyze={onReanalyze} reanalyzing={reanalyzing} />
+      <VerdictBanner receipt={receipt} onReanalyze={onReanalyze} reanalyzing={reanalyzing} autoSettlement={autoSettlement} />
       <ImageGallery receipt={receipt} />
       {!ocrSkipped && (
         <div className="rounded-2xl border border-black/5 bg-neutral-50 p-4 text-[13px] dark:border-white/10 dark:bg-white/5">
@@ -288,7 +320,6 @@ export default function ReceiptManager({
   const [reanalyzingId, setReanalyzingId] = useState<string | null>(null);
   const [manualAmount, setManualAmount] = useState("");
   const [manualDatetime, setManualDatetime] = useState("");
-  const [manualSeatClass, setManualSeatClass] = useState<"" | "NORMAL" | "RESTRICTED">("");
   const galleryInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
 
@@ -301,13 +332,6 @@ export default function ReceiptManager({
   // 사람이 눈으로 확인해야 하므로 일시도 함께 받는다. (GAS 버전 수동입력 방식 참고, 2026-08-07)
   const needsManualAmount = !autoSettlement && category !== "FIELD" && !flatRate;
   const needsManualDatetime = !autoSettlement && isBreakfast;
-  // 선박/항공은 좌석등급이 규정 위반(1등석/특실, 비즈니스/퍼스트 등)이면 반려된다 - 텍스트 인식
-  // 없이도 사용자가 직접 고르면 바로 판정 가능하다. (GAS 참고, 2026-08-07)
-  const needsSeatClass = !autoSettlement && category === "TRANSPORT" && !flatRate;
-  // 선박은 1등/2등, 항공은 비즈니스/일반석으로 구분해서 보여준다 - 규정상 인정 안 되는 등급
-  // (선박 1등, 항공 비즈니스)을 고르면 반려된다. (2026-08-07)
-  const normalClassLabel = transportMode === "SHIP" ? "2등" : "일반석";
-  const restrictedClassLabel = transportMode === "SHIP" ? "1등" : "비즈니스";
 
   function addFiles(files: FileList | null) {
     if (!files || files.length === 0) return;
@@ -346,7 +370,6 @@ export default function ReceiptManager({
     setQueue([]);
     setManualAmount("");
     setManualDatetime("");
-    setManualSeatClass("");
     setError(null);
   }
 
@@ -364,10 +387,6 @@ export default function ReceiptManager({
     }
     if (needsManualDatetime && !manualDatetime.trim()) {
       setError("결제 일시를 입력해 주세요.");
-      return;
-    }
-    if (needsSeatClass && !manualSeatClass) {
-      setError("좌석등급을 선택해 주세요.");
       return;
     }
     setUploading(true);
@@ -410,7 +429,6 @@ export default function ReceiptManager({
           blobs,
           ...(needsManualAmount ? { manualAmount: parsedAmount } : {}),
           ...(needsManualDatetime ? { manualDatetime } : {}),
-          ...(needsSeatClass ? { seatClass: manualSeatClass } : {}),
         }),
       });
       const data = await res.json().catch(() => null);
@@ -429,7 +447,6 @@ export default function ReceiptManager({
       setQueue([]);
       setManualAmount("");
       setManualDatetime("");
-      setManualSeatClass("");
       setUploading(false);
       router.refresh();
     } catch (err) {
@@ -492,7 +509,9 @@ export default function ReceiptManager({
   const hint = !autoSettlement
     ? category === "FIELD"
       ? "증빙용 사진입니다. 첨부하면 제출 처리됩니다."
-      : "이 출장은 자동정산을 사용하지 않습니다. 사진을 올리면 AI 판정 없이 증빙으로 제출만 됩니다 - 담당자가 직접 확인합니다."
+      : flatRate
+      ? "정액정산 대상입니다. 증빙자료를 제출합니다"
+      : "사용자 입력정보에 따라 검토합니다"
     : category === "FIELD"
     ? "판정 대상이 아닌 증빙용 사진입니다. 첨부하면 바로 인정 처리됩니다."
     : flatRate
@@ -588,7 +607,7 @@ export default function ReceiptManager({
               </>
             )}
           </div>
-          {(needsManualAmount || needsManualDatetime || needsSeatClass) && (
+          {(needsManualAmount || needsManualDatetime) && (
             <div className="mt-3 space-y-2.5">
               {needsManualAmount && (
                 <div>
@@ -617,24 +636,6 @@ export default function ReceiptManager({
                     onChange={(e) => setManualDatetime(e.target.value)}
                     className="w-full rounded-xl border border-black/10 bg-white px-3 py-2.5 text-[15px] text-neutral-900 outline-none focus:border-brand dark:border-white/15 dark:bg-white/5 dark:text-neutral-100"
                   />
-                </div>
-              )}
-              {needsSeatClass && (
-                <div>
-                  <label className="mb-1 block text-[12.5px] font-medium text-neutral-600 dark:text-neutral-300">
-                    좌석등급
-                  </label>
-                  <select
-                    value={manualSeatClass}
-                    onChange={(e) => setManualSeatClass(e.target.value as "" | "NORMAL" | "RESTRICTED")}
-                    className="w-full rounded-xl border border-black/10 bg-white px-3 py-2.5 text-[15px] text-neutral-900 outline-none focus:border-brand dark:border-white/15 dark:bg-white/5 dark:text-neutral-100"
-                  >
-                    <option value="" disabled>
-                      선택해 주세요
-                    </option>
-                    <option value="NORMAL">{normalClassLabel}</option>
-                    <option value="RESTRICTED">{restrictedClassLabel}</option>
-                  </select>
                 </div>
               )}
             </div>
@@ -702,9 +703,9 @@ export default function ReceiptManager({
                   </span>
                 )}
                 <span
-                  className={`absolute left-1.5 top-1.5 rounded-full px-2 py-0.5 text-[10px] font-semibold ${VERDICT_BADGE_CLASS[r.verdictStatus]}`}
+                  className={`absolute left-1.5 top-1.5 rounded-full px-2 py-0.5 text-[10px] font-semibold ${verdictBadgeClass(r, autoSettlement)}`}
                 >
-                  {VERDICT_LABEL[r.verdictStatus]}
+                  {verdictDisplayLabel(r.verdictStatus, autoSettlement, r.category, r.transportMode)}
                 </span>
                 {r.verdictAmount !== null && (
                   <span className="absolute inset-x-0 bottom-0 truncate bg-black/55 px-2 py-1 text-[11px] font-medium text-white">
@@ -738,6 +739,7 @@ export default function ReceiptManager({
                 receipt={selectedReceipt}
                 onReanalyze={reanalyzeReceipt}
                 reanalyzing={reanalyzingId === selectedReceipt.id}
+                autoSettlement={autoSettlement}
               />
             </div>
           )}

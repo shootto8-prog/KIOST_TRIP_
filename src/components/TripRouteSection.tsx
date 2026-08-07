@@ -59,18 +59,33 @@ export default function TripRouteSection({
       <p className="mt-2 text-[13.5px] font-medium text-neutral-500">
         {formatDate(startDate)} ~ {formatDate(endDate)}
       </p>
-      <ol className="mt-3 space-y-2.5">
-        {stops.map((stop) => (
-          <li key={stop.id} className="flex items-center gap-3">
-            <span className="w-12 shrink-0 text-[12px] font-medium text-neutral-400">
-              {STOP_TYPE_LABEL[stop.type]}
-            </span>
-            <span className="text-[15px] font-medium text-neutral-900 dark:text-neutral-100">
-              {stop.location}
-            </span>
-          </li>
-        ))}
-      </ol>
+      {(() => {
+        const departure = stops.find((s) => s.type === "DEPARTURE");
+        const arrival = stops.find((s) => s.type === "ARRIVAL");
+        const stopoverCount = stops.filter((s) => s.type === "STOPOVER").length;
+        return (
+          <div className="mt-3 flex items-center gap-2">
+            <div className="min-w-0 flex-1">
+              <p className="text-[11px] font-medium text-neutral-400">{STOP_TYPE_LABEL.DEPARTURE}</p>
+              <p className="truncate text-[15px] font-semibold text-neutral-900 dark:text-neutral-100">
+                {departure?.location ?? "-"}
+              </p>
+            </div>
+            <span className="shrink-0 text-neutral-300 dark:text-neutral-600">→</span>
+            <div className="min-w-0 flex-1 text-right">
+              <p className="text-[11px] font-medium text-neutral-400">{STOP_TYPE_LABEL.ARRIVAL}</p>
+              <p className="truncate text-[15px] font-semibold text-neutral-900 dark:text-neutral-100">
+                {arrival?.location ?? "-"}
+              </p>
+            </div>
+            {stopoverCount > 0 && (
+              <span className="shrink-0 rounded-full bg-neutral-500/10 px-2 py-1 text-[11px] font-medium text-neutral-500 dark:text-neutral-400">
+                +경유
+              </span>
+            )}
+          </div>
+        );
+      })()}
     </section>
   );
 }

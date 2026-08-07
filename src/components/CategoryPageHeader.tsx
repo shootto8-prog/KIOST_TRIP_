@@ -6,12 +6,10 @@ export default function CategoryPageHeader({
   tripId,
   icon,
   title,
-  accent,
 }: {
   tripId: string;
   icon: ReactNode;
   title: string;
-  accent: string;
 }) {
   return (
     <header className="flex items-center gap-3">
@@ -22,11 +20,7 @@ export default function CategoryPageHeader({
       >
         <IconChevronLeft />
       </Link>
-      <span
-        className={`flex size-11 shrink-0 items-center justify-center rounded-full ring-1 ring-inset ring-black/5 dark:ring-white/10 ${accent}`}
-      >
-        {icon}
-      </span>
+      {icon}
       <h1 className="text-[22px] font-bold tracking-tight text-neutral-900 dark:text-neutral-100">
         {title}
       </h1>
