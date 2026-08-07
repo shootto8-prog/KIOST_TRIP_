@@ -440,6 +440,49 @@ export type LodgingInput = {
 export const TRIP_CAP_EXHAUSTED_CHECK_ID = "trip_cap_exhausted";
 export const MULTIPLE_DOCUMENTS_CHECK_ID = "multiple_documents";
 
+/**
+ * 숙박 금액 상한 판정(OCR 모드/수동입력 모드 공용) - 2박/3박이면 1박당 상한 × 박수로 늘어나고,
+ * 같은 출장의 다른 숙박 영수증이 이미 쓴 만큼은 빼고 남은 한도까지만 인정한다.
+ * (2026-08-04 결정사항 8)
+ */
+function applyLodgingAmountCap(
+  amount: number,
+  nights: number,
+  alreadyAcceptedInTrip: number | undefined,
+  regulationRef: string
+): VerificationResult {
+  const r = rules.lodging;
+  const capForStay = r.daily_cap_krw * nights;
+  const alreadyAccepted = Math.max(0, alreadyAcceptedInTrip ?? 0);
+  const remainingCap = capForStay - alreadyAccepted;
+
+  if (remainingCap <= 0) {
+    return rejected(
+      `이미 숙박비 상한에 도달했습니다 (${nights}박 총 상한 ${capForStay.toLocaleString("ko-KR")}원, 이미 인정된 금액 ${alreadyAccepted.toLocaleString("ko-KR")}원). 추가 숙박비는 정산되지 않습니다.`,
+      TRIP_CAP_EXHAUSTED_CHECK_ID,
+      regulationRef
+    );
+  }
+
+  if (amount > remainingCap) {
+    const cappedMessage =
+      alreadyAccepted > 0
+        ? `이 출장에서 이미 ${alreadyAccepted.toLocaleString("ko-KR")}원이 인정되어, 남은 한도 ${remainingCap.toLocaleString("ko-KR")}원까지만 정산됨을 안내드립니다 (${nights}박 총 상한 ${capForStay.toLocaleString("ko-KR")}원)`
+        : nights > 1
+        ? `1박당 최대 ${r.daily_cap_krw.toLocaleString("ko-KR")}원 기준, ${nights}박 총액 최대 ${capForStay.toLocaleString("ko-KR")}원까지만 정산됨을 안내드립니다`
+        : getCheckMessage(r.checks, "amount_cap");
+    return {
+      status: "PARTIAL",
+      acceptedAmount: remainingCap,
+      message: cappedMessage,
+      failedCheckId: "amount_cap",
+      regulationRef,
+    };
+  }
+
+  return { status: "APPROVED", acceptedAmount: amount, message: null, failedCheckId: null, regulationRef };
+}
+
 export function verifyLodging(input: LodgingInput): VerificationResult {
   const r = rules.lodging;
   const regulationRef = r.regulation_ref;
@@ -486,41 +529,91 @@ export function verifyLodging(input: LodgingInput): VerificationResult {
     return needsAmountReview(regulationRef);
   }
 
-  // 순서5: 금액 상한 (부분인정) - 2박/3박이면 1박당 상한 × 박수로 늘어나고,
-  // 같은 출장의 다른 숙박 영수증이 이미 쓴 만큼은 빼고 남은 한도까지만 인정한다.
-  const capForStay = r.daily_cap_krw * nights;
-  const alreadyAccepted = Math.max(0, input.alreadyAcceptedInTrip ?? 0);
-  const remainingCap = capForStay - alreadyAccepted;
+  // 순서5: 금액 상한 (부분인정)
+  return applyLodgingAmountCap(input.ocrAmountGuess, nights, input.alreadyAcceptedInTrip, regulationRef);
+}
 
-  if (remainingCap <= 0) {
-    return rejected(
-      `이미 숙박비 상한에 도달했습니다 (${nights}박 총 상한 ${capForStay.toLocaleString("ko-KR")}원, 이미 인정된 금액 ${alreadyAccepted.toLocaleString("ko-KR")}원). 추가 숙박비는 정산되지 않습니다.`,
-      TRIP_CAP_EXHAUSTED_CHECK_ID,
-      regulationRef
-    );
+/**
+ * 자동정산 미사용 출장의 수동입력 판정 - GAS 원본(gas/VerifyReceipt.gs)의 "OCR 없이도 구조적으로
+ * 확인 가능한 것만 자동 판정한다" 원칙을 그대로 따른다. 품목/불인정품목/다수영수증처럼 영수증
+ * 내용을 읽어야 아는 것은 확인할 수 없어 뺐고, 날짜범위·시간대·금액상한·좌석등급처럼 사용자가
+ * 직접 입력한 값만으로 구조적으로 확인 가능한 것은 그대로 자동 판정한다. (2026-08-07)
+ */
+export type ManualBreakfastInput = {
+  amount: number;
+  datetime: string; // ISO (parseKstDatetime을 거친 값)
+  tripStartDate: string;
+  tripEndDate: string;
+};
+
+export function verifyBreakfastManual(input: ManualBreakfastInput): VerificationResult {
+  const r = rules.breakfast;
+  const regulationRef = r.regulation_ref;
+
+  if (!isWithinTripDateRange(input.datetime, input.tripStartDate, input.tripEndDate)) {
+    return rejected(TRIP_DATE_MISMATCH_MESSAGE, "trip_date_mismatch", regulationRef);
   }
 
-  if (input.ocrAmountGuess > remainingCap) {
-    const cappedMessage =
-      alreadyAccepted > 0
-        ? `이 출장에서 이미 ${alreadyAccepted.toLocaleString("ko-KR")}원이 인정되어, 남은 한도 ${remainingCap.toLocaleString("ko-KR")}원까지만 정산됨을 안내드립니다 (${nights}박 총 상한 ${capForStay.toLocaleString("ko-KR")}원)`
-        : nights > 1
-        ? `1박당 최대 ${r.daily_cap_krw.toLocaleString("ko-KR")}원 기준, ${nights}박 총액 최대 ${capForStay.toLocaleString("ko-KR")}원까지만 정산됨을 안내드립니다`
-        : getCheckMessage(r.checks, "amount_cap");
+  const { hour, minute, second } = getKstParts(new Date(input.datetime));
+  const secondsOfDay = hour * 3600 + minute * 60 + second;
+  const [sh, sm, ssec] = r.allowed_time_window.start.split(":").map(Number);
+  const [eh, em, esec] = r.allowed_time_window.end.split(":").map(Number);
+  const startSec = sh * 3600 + sm * 60 + ssec;
+  const endSec = eh * 3600 + em * 60 + esec;
+  if (secondsOfDay < startSec || secondsOfDay > endSec) {
+    return rejected(getCheckMessage(r.checks, "time_window"), "time_window", regulationRef);
+  }
+
+  if (input.amount > r.amount_cap_krw) {
     return {
       status: "PARTIAL",
-      acceptedAmount: remainingCap,
-      message: cappedMessage,
+      acceptedAmount: r.amount_cap_krw,
+      message: getCheckMessage(r.checks, "amount_cap"),
       failedCheckId: "amount_cap",
       regulationRef,
     };
   }
 
-  return {
-    status: "APPROVED",
-    acceptedAmount: input.ocrAmountGuess,
-    message: null,
-    failedCheckId: null,
-    regulationRef,
-  };
+  return { status: "APPROVED", acceptedAmount: input.amount, message: null, failedCheckId: null, regulationRef };
+}
+
+export type ManualTransportInput = {
+  mode: "SHIP" | "AIR" | "RAIL" | "PRIVATE_CAR" | "BUS";
+  amount: number;
+  seatClass: "NORMAL" | "RESTRICTED";
+};
+
+/**
+ * 날짜(탑승/이용일시) 검사는 하지 않는다 - OCR 모드에서 항공/선박이 사전 결제 문제로 이미
+ * 제외한 것과 같은 이유로(2026-08-04 결정사항 1), 수동입력 모드에서도 별도 일시 입력을
+ * 받지 않기로 했다. 좌석등급은 사용자가 직접 선택하므로 텍스트 인식 없이 바로 판정 가능하다.
+ */
+export function verifyTransportManual(input: ManualTransportInput): VerificationResult {
+  const regulationRef = rules.transport.regulation_ref;
+  if (isFlatRateTransportMode(input.mode)) {
+    return { status: "APPROVED", acceptedAmount: null, message: FLAT_RATE_MESSAGE, failedCheckId: null, regulationRef };
+  }
+
+  const modeRules: ModeRules = input.mode === "SHIP" ? rules.transport.ship : rules.transport.air;
+  if (input.seatClass === "RESTRICTED") {
+    return rejected(getCheckMessage(modeRules.checks, "class_restriction"), "class_restriction", regulationRef);
+  }
+
+  return { status: "APPROVED", acceptedAmount: input.amount, message: null, failedCheckId: null, regulationRef };
+}
+
+export type ManualLodgingInput = {
+  amount: number;
+  nights: number;
+  alreadyAcceptedInTrip?: number;
+};
+
+/**
+ * 날짜 검사는 하지 않는다 - OCR 모드도 같은 이유(OTA 사전 결제)로 2026-08-05에 제외했다.
+ * 결국 수동입력 모드에서 구조적으로 확인 가능한 건 금액 상한(출장 단위 누적 포함)뿐이다.
+ */
+export function verifyLodgingManual(input: ManualLodgingInput): VerificationResult {
+  const regulationRef = rules.lodging.regulation_ref;
+  const nights = input.nights > 0 ? input.nights : 1;
+  return applyLodgingAmountCap(input.amount, nights, input.alreadyAcceptedInTrip, regulationRef);
 }

@@ -8,6 +8,9 @@ import {
   verifyLodging,
   verifyFieldPhoto,
   verifySubmitted,
+  verifyBreakfastManual,
+  verifyTransportManual,
+  verifyLodgingManual,
   isFlatRateTransportMode,
   type VerificationResult,
 } from "./verifyReceipt";
@@ -42,6 +45,11 @@ export type AnalyzeReceiptInput = {
    * 하므로 날짜뿐 아니라 시각까지 받는다.
    */
   manualDatetime?: string | null;
+  /**
+   * 자동정산 미사용 출장의 교통(선박·항공) 항목에서 사용자가 직접 선택한 좌석등급 -
+   * RESTRICTED면 규정상 인정되지 않는 등급이라 바로 반려된다. (2026-08-07)
+   */
+  manualSeatClass?: "NORMAL" | "RESTRICTED" | null;
 };
 
 export type AnalyzeReceiptOutput = {
@@ -178,17 +186,45 @@ export function tripNights(trip: { startDate: Date; endDate: Date }): number {
  * 바로 인정 처리하고 OCR 자체를 건너뛴다.
  */
 export async function analyzeReceipt(input: AnalyzeReceiptInput): Promise<AnalyzeReceiptOutput> {
-  // 자동정산을 쓰지 않는 출장은 카테고리와 무관하게 OCR 자체를 건너뛰고 "제출"로만 기록한다 -
-  // 인정/불인정 표현을 쓰면 자동으로 걸러진 것으로 오해할 수 있어서다. (2026-08-07)
-  // 대신 사용자가 직접 입력한 금액(+조식은 일시)을 그대로 기록해, 나중에 담당자가 확인할 수
-  // 있게 한다 (GAS 버전의 수동입력 방식을 참고, 2026-08-07 추가).
+  // 자동정산을 쓰지 않는 출장은 OCR(무료 LLM 호출) 자체를 건너뛴다 - 대신 사용자가 직접 입력한
+  // 값(금액, 조식은 일시, 교통은 좌석등급)을 GAS 원본의 수동입력 판정 로직으로 검증한다.
+  // 영수증 내용을 읽어야 아는 것(품목/불인정품목/다수영수증)은 확인할 방법이 없어 빠지지만,
+  // 구조적으로 확인 가능한 것(날짜범위·시간대·금액상한·좌석등급)은 그대로 자동 판정해
+  // 출장정산 담당자의 검토 부담을 줄인다. (2026-08-07)
   if (!input.autoSettlement) {
     const manualDate = input.manualDatetime ? parseKstDatetime(input.manualDatetime) : null;
-    return {
-      ...NO_OCR_RESULT,
-      ocrDateGuess: manualDate,
-      verdict: verifySubmitted(input.manualAmount ?? null),
-    };
+    const manualDateIso = manualDate ? manualDate.toISOString() : null;
+    const amount = input.manualAmount ?? null;
+
+    let verdict: VerificationResult;
+    if (input.category === "FIELD") {
+      verdict = verifyFieldPhoto();
+    } else if (input.category === "TRANSPORT") {
+      verdict = verifyTransportManual({
+        mode: input.transportMode as "SHIP" | "AIR" | "RAIL" | "PRIVATE_CAR" | "BUS",
+        amount: amount ?? 0,
+        seatClass: input.manualSeatClass ?? "NORMAL",
+      });
+    } else if (input.category === "BREAKFAST" && manualDateIso && amount !== null) {
+      verdict = verifyBreakfastManual({
+        amount,
+        datetime: manualDateIso,
+        tripStartDate: input.tripStartDate,
+        tripEndDate: input.tripEndDate,
+      });
+    } else if (input.category === "LODGING" && amount !== null) {
+      verdict = verifyLodgingManual({
+        amount,
+        nights: input.nights,
+        alreadyAcceptedInTrip: input.lodgingAlreadyAcceptedInTrip,
+      });
+    } else {
+      // 방어적 폴백 - POST /api/receipts가 이미 필수값을 검증하므로 정상 경로에서는 여기에
+      // 도달하지 않는다. 값이 없으면 판정을 내리지 않고 제출 사실만 남긴다.
+      verdict = verifySubmitted(amount);
+    }
+
+    return { ...NO_OCR_RESULT, ocrDateGuess: manualDate, verdict };
   }
 
   if (input.category === "FIELD") {

@@ -1,5 +1,13 @@
 import { describe, it, expect } from "vitest";
-import { verifyBreakfast, verifyTransport, verifyLodging, verifySubmitted } from "./verifyReceipt";
+import {
+  verifyBreakfast,
+  verifyTransport,
+  verifyLodging,
+  verifySubmitted,
+  verifyBreakfastManual,
+  verifyTransportManual,
+  verifyLodgingManual,
+} from "./verifyReceipt";
 import { parseKstDatetime } from "./kst";
 
 /**
@@ -750,5 +758,101 @@ describe("verifySubmitted (자동정산 미사용)", () => {
     expect(result.status).toBe("SUBMITTED");
     expect(result.acceptedAmount).toBe(15000);
     expect(result.message).toBeNull();
+  });
+});
+
+describe("verifyBreakfastManual (자동정산 미사용, 수동입력)", () => {
+  const base = { tripStartDate: TRIP_START, tripEndDate: TRIP_END };
+
+  it("출장기간 내, 시간대 내, 금액 이내 -> 인정", () => {
+    const result = verifyBreakfastManual({ ...base, amount: 8000, datetime: d("2026-07-21T07:30:00") });
+    expect(result.status).toBe("APPROVED");
+    expect(result.acceptedAmount).toBe(8000);
+  });
+
+  it("출장기간 밖 날짜 -> 반려", () => {
+    const result = verifyBreakfastManual({ ...base, amount: 8000, datetime: d("2026-07-25T07:30:00") });
+    expect(result.status).toBe("REJECTED");
+    expect(result.failedCheckId).toBe("trip_date_mismatch");
+  });
+
+  it("허용 시간대(05:00~10:00) 밖 -> 반려", () => {
+    const result = verifyBreakfastManual({ ...base, amount: 8000, datetime: d("2026-07-21T18:00:00") });
+    expect(result.status).toBe("REJECTED");
+    expect(result.failedCheckId).toBe("time_window");
+  });
+
+  it("금액이 상한(15,000원) 초과 -> 부분인정", () => {
+    const result = verifyBreakfastManual({ ...base, amount: 20000, datetime: d("2026-07-21T07:30:00") });
+    expect(result.status).toBe("PARTIAL");
+    expect(result.acceptedAmount).toBe(15000);
+  });
+
+  it("장소 입력은 받지 않으므로 장소 불일치로는 반려되지 않는다", () => {
+    const result = verifyBreakfastManual({ ...base, amount: 8000, datetime: d("2026-07-21T07:30:00") });
+    expect(result.failedCheckId).not.toBe("location_mismatch");
+  });
+});
+
+describe("verifyTransportManual (자동정산 미사용, 수동입력)", () => {
+  it("일반석 -> 인정", () => {
+    const result = verifyTransportManual({ mode: "AIR", amount: 45000, seatClass: "NORMAL" });
+    expect(result.status).toBe("APPROVED");
+    expect(result.acceptedAmount).toBe(45000);
+  });
+
+  it("항공: 제한 등급(비즈니스/퍼스트) -> 반려", () => {
+    const result = verifyTransportManual({ mode: "AIR", amount: 45000, seatClass: "RESTRICTED" });
+    expect(result.status).toBe("REJECTED");
+    expect(result.failedCheckId).toBe("class_restriction");
+  });
+
+  it("선박: 제한 등급(1등실/특실) -> 반려", () => {
+    const result = verifyTransportManual({ mode: "SHIP", amount: 30000, seatClass: "RESTRICTED" });
+    expect(result.status).toBe("REJECTED");
+    expect(result.failedCheckId).toBe("class_restriction");
+  });
+
+  it("정액정산 대상(고속철도)은 좌석등급과 무관하게 항상 인정", () => {
+    const result = verifyTransportManual({ mode: "RAIL", amount: 0, seatClass: "RESTRICTED" });
+    expect(result.status).toBe("APPROVED");
+    expect(result.acceptedAmount).toBeNull();
+  });
+
+  it("날짜 검사는 하지 않는다(사전 결제 문제로 OCR 모드와 동일하게 생략)", () => {
+    // datetime 자체를 입력받지 않으므로, 출장기간과 무관하게 판정된다.
+    const result = verifyTransportManual({ mode: "SHIP", amount: 30000, seatClass: "NORMAL" });
+    expect(result.status).toBe("APPROVED");
+  });
+});
+
+describe("verifyLodgingManual (자동정산 미사용, 수동입력)", () => {
+  it("1박, 상한 이내 -> 인정", () => {
+    const result = verifyLodgingManual({ amount: 100000, nights: 1 });
+    expect(result.status).toBe("APPROVED");
+    expect(result.acceptedAmount).toBe(100000);
+  });
+
+  it("2박, 1박당 상한(12만원) 초과지만 2박 총 상한(24만원) 이내 -> 인정", () => {
+    const result = verifyLodgingManual({ amount: 200000, nights: 2 });
+    expect(result.status).toBe("APPROVED");
+  });
+
+  it("2박 총 상한 초과 -> 부분인정", () => {
+    const result = verifyLodgingManual({ amount: 260000, nights: 2 });
+    expect(result.status).toBe("PARTIAL");
+    expect(result.acceptedAmount).toBe(240000);
+  });
+
+  it("출장 단위 누적 상한을 OCR 모드와 동일하게 적용한다", () => {
+    const result = verifyLodgingManual({ amount: 100000, nights: 2, alreadyAcceptedInTrip: 200000 });
+    expect(result.status).toBe("PARTIAL");
+    expect(result.acceptedAmount).toBe(40000); // 남은 한도 240000 - 200000
+  });
+
+  it("이미 상한을 다 썼으면 반려", () => {
+    const result = verifyLodgingManual({ amount: 50000, nights: 1, alreadyAcceptedInTrip: 120000 });
+    expect(result.status).toBe("REJECTED");
+    expect(result.failedCheckId).toBe("trip_cap_exhausted");
   });
 });
