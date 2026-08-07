@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { toReceiptItem } from "@/lib/receipt";
 import CategoryPageHeader from "@/components/CategoryPageHeader";
 import ReceiptManager from "@/components/ReceiptManager";
-import { IconPhoto } from "@/components/icons";
+import { IconFieldPhoto } from "@/components/icons";
 
 export default async function FieldPhotoPage({
   params,
@@ -25,9 +25,8 @@ export default async function FieldPhotoPage({
     <main className="space-y-6">
       <CategoryPageHeader
         tripId={id}
-        icon={<IconPhoto className="size-6 text-rose-600 dark:text-rose-400" />}
+        icon={<IconFieldPhoto className="size-12" />}
         title="현장사진"
-        accent="bg-rose-500/10"
       />
       <ReceiptManager
         tripId={id}
