@@ -42,10 +42,6 @@ export default async function TripHubPage({
     }),
   ]);
   if (!trip) notFound();
-  const totalAmount =
-    (breakfast._sum.verdictAmount ?? 0) +
-    (transport._sum.verdictAmount ?? 0) +
-    (lodging._sum.verdictAmount ?? 0);
   const isCompleted = trip.status === "COMPLETED";
 
   return (
@@ -83,14 +79,7 @@ export default async function TripHubPage({
 
       {isCompleted ? (
         <section className="shadow-glow rounded-[28px] bg-brand p-5 text-white">
-          {trip.autoSettlement ? (
-            <>
-              <p className="text-[13px] font-medium text-blue-100">최종 인정된 실비 합계</p>
-              <p className="mt-1 text-3xl font-bold tracking-tight">
-                {totalAmount.toLocaleString("ko-KR")}원
-              </p>
-            </>
-          ) : (
+          {!trip.autoSettlement && (
             <>
               <p className="text-[13px] font-medium text-blue-100">자동정산 미사용</p>
               <p className="mt-1 text-[15px] font-semibold leading-relaxed">
