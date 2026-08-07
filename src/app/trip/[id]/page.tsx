@@ -7,7 +7,7 @@ import TripRouteSection from "@/components/TripRouteSection";
 import TripStatusButton from "@/components/TripStatusButton";
 import TripDeleteButton from "@/components/TripDeleteButton";
 import { isEmailConfigured } from "@/lib/sendEmail";
-import { IconBreakfast, IconTransport, IconLodging, IconPhoto, IconChevronLeft, IconDownload } from "@/components/icons";
+import { IconBreakfast, IconTransport, IconLodging, IconFieldPhoto, IconChevronLeft, IconDownload } from "@/components/icons";
 
 export default async function TripHubPage({
   params,
@@ -108,63 +108,39 @@ export default async function TripHubPage({
           </a>
           <EmailSendButton tripId={id} enabled={isEmailConfigured()} defaultEmail={trip.ownerEmail ?? undefined} />
         </section>
-      ) : (
-        (breakfast._count._all > 0 || transport._count._all > 0 || lodging._count._all > 0 || field._count._all > 0) && (
-          <section className="shadow-soft rounded-[28px] border border-black/5 bg-white/80 p-5 dark:border-white/10 dark:bg-white/[0.04]">
-            {trip.autoSettlement ? (
-              <>
-                <p className="text-[13px] font-medium text-neutral-400">현재까지 인정된 실비 합계</p>
-                <p className="mt-1 text-2xl font-bold tracking-tight text-neutral-900 dark:text-neutral-100">
-                  {totalAmount.toLocaleString("ko-KR")}원
-                </p>
-              </>
-            ) : (
-              <p className="text-[13px] font-medium text-neutral-400">
-                이 출장은 자동정산을 사용하지 않습니다 - 제출된 증빙은 담당자가 직접 확인합니다.
-              </p>
-            )}
-            <p className="mt-1 text-[12px] text-neutral-400">
-              출장이 끝나면 "출장 종료"를 눌러 정산 결과를 PDF/이메일로 받을 수 있어요.
-            </p>
-          </section>
-        )
-      )}
+      ) : null}
 
       <section className="grid grid-cols-2 gap-3">
         <CategoryCard
           href={`/trip/${id}/breakfast`}
-          icon={<IconBreakfast className="size-7 text-amber-600 dark:text-amber-400" />}
+          icon={<IconBreakfast className="size-20" />}
           label="조식"
           count={breakfast._count._all}
           amount={breakfast._sum.verdictAmount ?? 0}
-          accent="bg-amber-500/10"
           autoSettlement={trip.autoSettlement}
         />
         <CategoryCard
           href={`/trip/${id}/transport`}
-          icon={<IconTransport className="size-7 text-blue-600 dark:text-blue-400" />}
+          icon={<IconTransport className="size-20" />}
           label="교통"
           count={transport._count._all}
           amount={transport._sum.verdictAmount ?? 0}
-          accent="bg-blue-500/10"
           autoSettlement={trip.autoSettlement}
         />
         <CategoryCard
           href={`/trip/${id}/lodging`}
-          icon={<IconLodging className="size-7 text-violet-600 dark:text-violet-400" />}
+          icon={<IconLodging className="size-20" />}
           label="숙박"
           count={lodging._count._all}
           amount={lodging._sum.verdictAmount ?? 0}
-          accent="bg-violet-500/10"
           autoSettlement={trip.autoSettlement}
         />
         <CategoryCard
           href={`/trip/${id}/field`}
-          icon={<IconPhoto className="size-7 text-rose-600 dark:text-rose-400" />}
+          icon={<IconFieldPhoto className="size-20" />}
           label="현장사진"
           count={field._count._all}
           amount={field._sum.verdictAmount ?? 0}
-          accent="bg-rose-500/10"
           autoSettlement={trip.autoSettlement}
         />
       </section>
