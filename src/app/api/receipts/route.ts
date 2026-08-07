@@ -10,6 +10,7 @@ import { sumAcceptedLodgingInTrip } from "@/lib/lodgingBudget";
 import { assertTripOwner } from "@/lib/ownerGuard";
 import { fetchPrivateBlob, PrivateBlobFetchError } from "@/lib/blobFetch";
 import { toReceiptItem } from "@/lib/receipt";
+import { isFlatRateTransportMode } from "@/lib/verifyReceipt";
 
 const CATEGORIES = ["BREAKFAST", "TRANSPORT", "LODGING", "FIELD"] as const;
 const TRANSPORT_MODES = ["SHIP", "AIR", "RAIL", "PRIVATE_CAR", "BUS"] as const;
@@ -46,12 +47,22 @@ export async function POST(req: NextRequest) {
   if (!body) {
     return NextResponse.json({ error: "요청 형식이 올바르지 않습니다." }, { status: 400 });
   }
-  const { tripId, category, transportMode: transportModeRaw, seatClass: seatClassRaw, blobs } = body as {
+  const {
+    tripId,
+    category,
+    transportMode: transportModeRaw,
+    seatClass: seatClassRaw,
+    blobs,
+    manualAmount: manualAmountRaw,
+    manualDatetime: manualDatetimeRaw,
+  } = body as {
     tripId?: string;
     category?: string;
     transportMode?: string;
     seatClass?: string;
     blobs?: UploadedBlob[];
+    manualAmount?: unknown;
+    manualDatetime?: unknown;
   };
 
   if (typeof tripId !== "string" || !tripId) {
@@ -98,6 +109,29 @@ export async function POST(req: NextRequest) {
   const ownerError = await assertTripOwner(trip.ownerEmail);
   if (ownerError) {
     return failWith(ownerError.error, ownerError.status);
+  }
+
+  // 자동정산을 안 쓰는 출장은 실비 항목(조식/교통-선박·항공/숙박)에 금액을 사람이 직접 입력해야
+  // 한다 - 현장사진과 정액정산 교통수단(고속철도/승용/버스)은 원래도 금액 개념이 없어 예외.
+  // 조식은 규정상 05:00~10:00 시간대를 사람이 눈으로 확인해야 하므로 일시도 함께 받는다.
+  // (GAS 버전의 수동입력 검증을 그대로 참고, 2026-08-07)
+  let manualAmount: number | null = null;
+  let manualDatetime: string | null = null;
+  if (!trip.autoSettlement) {
+    const needsAmount = category !== "FIELD" && !(transportMode && isFlatRateTransportMode(transportMode));
+    if (needsAmount) {
+      const parsedAmount = typeof manualAmountRaw === "number" ? manualAmountRaw : Number(manualAmountRaw);
+      if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+        return failWith("금액을 올바르게 입력해 주세요.", 400);
+      }
+      manualAmount = Math.round(parsedAmount);
+    }
+    if (category === "BREAKFAST") {
+      if (typeof manualDatetimeRaw !== "string" || !manualDatetimeRaw.trim()) {
+        return failWith("결제 일시를 입력해 주세요.", 400);
+      }
+      manualDatetime = manualDatetimeRaw;
+    }
   }
 
   const categoryDir = category.toLowerCase();
@@ -245,6 +279,8 @@ export async function POST(req: NextRequest) {
       nights: tripNights(trip),
       lodgingAlreadyAcceptedInTrip,
       autoSettlement: trip.autoSettlement,
+      manualAmount,
+      manualDatetime,
     });
   } catch (err) {
     console.error("Receipt analysis failed:", err);

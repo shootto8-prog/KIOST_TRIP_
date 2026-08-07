@@ -147,9 +147,12 @@ export function verifyFieldPhoto(): VerificationResult {
  * 자동정산을 사용하지 않는 출장: OCR/판정 없이 "제출됨" 상태만 기록한다. 인정/불인정 같은
  * 판정 표현을 쓰면 담당자가 자동으로 걸러진 것으로 오해할 수 있어, 항목과 무관하게 항상
  * 이 결과를 쓴다(analyzeReceipt.ts에서 카테고리 분기보다 먼저 처리).
+ *
+ * acceptedAmount는 사용자가 직접 입력한 금액을 그대로 기록한 것이지, 규정에 따라 "인정"됐다는
+ * 뜻이 아니다 - 자동 판정 없이 담당자가 나중에 직접 확인해야 한다는 원칙은 그대로 유지된다.
  */
-export function verifySubmitted(): VerificationResult {
-  return { status: "SUBMITTED", acceptedAmount: null, message: null, failedCheckId: null, regulationRef: "" };
+export function verifySubmitted(acceptedAmount: number | null = null): VerificationResult {
+  return { status: "SUBMITTED", acceptedAmount, message: null, failedCheckId: null, regulationRef: "" };
 }
 
 export type BreakfastInput = {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { verifyBreakfast, verifyTransport, verifyLodging } from "./verifyReceipt";
+import { verifyBreakfast, verifyTransport, verifyLodging, verifySubmitted } from "./verifyReceipt";
 import { parseKstDatetime } from "./kst";
 
 /**
@@ -734,5 +734,21 @@ describe("verifyLodging - 출장 단위 누적 상한", () => {
     const result = verifyLodging({ ...base, ocrAmountGuess: 200000 });
     expect(result.status).toBe("APPROVED");
     expect(result.acceptedAmount).toBe(200000);
+  });
+});
+
+describe("verifySubmitted (자동정산 미사용)", () => {
+  it("금액을 안 넘기면 acceptedAmount가 null", () => {
+    const result = verifySubmitted();
+    expect(result.status).toBe("SUBMITTED");
+    expect(result.acceptedAmount).toBeNull();
+    expect(result.failedCheckId).toBeNull();
+  });
+
+  it("사용자가 직접 입력한 금액을 그대로 기록한다(자동 판정이 아님)", () => {
+    const result = verifySubmitted(15000);
+    expect(result.status).toBe("SUBMITTED");
+    expect(result.acceptedAmount).toBe(15000);
+    expect(result.message).toBeNull();
   });
 });

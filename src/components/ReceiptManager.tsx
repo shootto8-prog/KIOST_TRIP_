@@ -125,10 +125,20 @@ function VerdictBanner({
         </span>
         {receipt.verdictAmount !== null && (
           <span className="text-[15px] font-bold text-neutral-900 dark:text-neutral-100">
-            {receipt.verdictAmount.toLocaleString("ko-KR")}원 인정
+            {receipt.verdictAmount.toLocaleString("ko-KR")}원
+            {/* SUBMITTED는 자동판정이 아니라 사람이 직접 입력한 금액이라 "인정"이라고 하면
+                오해를 준다 - 판정이 실제로 이뤄진 상태에서만 "인정"을 붙인다. */}
+            {receipt.verdictStatus !== "SUBMITTED" && " 인정"}
           </span>
         )}
       </div>
+      {receipt.verdictStatus === "SUBMITTED" && receipt.ocrDateGuess && (
+        // 자동정산 미사용 조식은 OCR을 안 돌려 "인식 결과" 카드 자체가 안 뜬다 - 직접 입력한
+        // 일시를 그대로 잃어버리지 않도록 여기 배너에 보여준다.
+        <p className="mt-1 text-[12.5px] text-neutral-500 dark:text-neutral-400">
+          입력한 일시: {formatOcrDate(receipt.ocrDateGuess)}
+        </p>
+      )}
       {receipt.verdictMessage && (
         // 교통 부분인정 메시지처럼 "N번째 사진: ..." 여러 줄이 올 수 있어 줄바꿈을 살린다.
         <p className="mt-2 whitespace-pre-line text-neutral-700 dark:text-neutral-300">
@@ -266,6 +276,8 @@ export default function ReceiptManager({
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [reanalyzingId, setReanalyzingId] = useState<string | null>(null);
+  const [manualAmount, setManualAmount] = useState("");
+  const [manualDatetime, setManualDatetime] = useState("");
   const galleryInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
 
@@ -273,6 +285,11 @@ export default function ReceiptManager({
   // 조식은 한 영수증 = 한 장으로 제한한다 (다른 항목처럼 여러 장을 페이지/왕복권으로 합쳐 볼
   // 이유가 없고, 여러 장 올리면 오히려 오인식 위험만 커진다).
   const isBreakfast = category === "BREAKFAST";
+  // 자동정산을 안 쓰면 조식/교통(선박·항공)/숙박은 금액을 사람이 직접 입력해야 한다 - 현장사진과
+  // 정액정산 교통수단(고속철도/승용/버스)은 원래도 금액 개념이 없다. 조식은 05:00~10:00 시간대를
+  // 사람이 눈으로 확인해야 하므로 일시도 함께 받는다. (GAS 버전 수동입력 방식 참고, 2026-08-07)
+  const needsManualAmount = !autoSettlement && category !== "FIELD" && !flatRate;
+  const needsManualDatetime = !autoSettlement && isBreakfast;
 
   function addFiles(files: FileList | null) {
     if (!files || files.length === 0) return;
@@ -301,11 +318,27 @@ export default function ReceiptManager({
 
   function clearQueue() {
     setQueue([]);
+    setManualAmount("");
+    setManualDatetime("");
     setError(null);
   }
 
   async function confirmUpload() {
     if (queue.length === 0) return;
+    // 서버도 같은 조건으로 다시 검증하지만, 여기서 먼저 막아야 사진을 다 올린 뒤에 실패해
+    // Blob에 고아 파일이 쌓이는 걸 피할 수 있다.
+    let parsedAmount: number | null = null;
+    if (needsManualAmount) {
+      parsedAmount = Number(manualAmount);
+      if (!manualAmount.trim() || !Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+        setError("금액을 올바르게 입력해 주세요.");
+        return;
+      }
+    }
+    if (needsManualDatetime && !manualDatetime.trim()) {
+      setError("결제 일시를 입력해 주세요.");
+      return;
+    }
     setUploading(true);
     setError(null);
     try {
@@ -339,7 +372,14 @@ export default function ReceiptManager({
       const res = await fetch("/api/receipts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tripId, category, transportMode, blobs }),
+        body: JSON.stringify({
+          tripId,
+          category,
+          transportMode,
+          blobs,
+          ...(needsManualAmount ? { manualAmount: parsedAmount } : {}),
+          ...(needsManualDatetime ? { manualDatetime } : {}),
+        }),
       });
       const data = await res.json().catch(() => null);
       if (!res.ok) {
@@ -355,6 +395,8 @@ export default function ReceiptManager({
       setReceipts((prev) => [data.receipt, ...prev]);
       setSelectedId(data.receipt.id);
       setQueue([]);
+      setManualAmount("");
+      setManualDatetime("");
       setUploading(false);
       router.refresh();
     } catch (err) {
@@ -513,6 +555,39 @@ export default function ReceiptManager({
               </>
             )}
           </div>
+          {(needsManualAmount || needsManualDatetime) && (
+            <div className="mt-3 space-y-2.5">
+              {needsManualAmount && (
+                <div>
+                  <label className="mb-1 block text-[12.5px] font-medium text-neutral-600 dark:text-neutral-300">
+                    금액
+                  </label>
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    min={1}
+                    placeholder="예: 15000"
+                    value={manualAmount}
+                    onChange={(e) => setManualAmount(e.target.value)}
+                    className="w-full rounded-xl border border-black/10 bg-white px-3 py-2.5 text-[15px] text-neutral-900 outline-none focus:border-brand dark:border-white/15 dark:bg-white/5 dark:text-neutral-100"
+                  />
+                </div>
+              )}
+              {needsManualDatetime && (
+                <div>
+                  <label className="mb-1 block text-[12.5px] font-medium text-neutral-600 dark:text-neutral-300">
+                    결제 일시
+                  </label>
+                  <input
+                    type="datetime-local"
+                    value={manualDatetime}
+                    onChange={(e) => setManualDatetime(e.target.value)}
+                    className="w-full rounded-xl border border-black/10 bg-white px-3 py-2.5 text-[15px] text-neutral-900 outline-none focus:border-brand dark:border-white/15 dark:bg-white/5 dark:text-neutral-100"
+                  />
+                </div>
+              )}
+            </div>
+          )}
           {hint && <p className="mt-3 text-[12px] text-neutral-400">{hint}</p>}
           {error && <p className="mt-2 text-[13px] text-red-500">{error}</p>}
           <div className="mt-4 flex gap-2">

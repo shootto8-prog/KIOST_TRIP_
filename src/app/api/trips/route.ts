@@ -15,9 +15,9 @@ export async function POST(req: NextRequest) {
   }
   const stops: StopInput[] = Array.isArray(body.stops) ? body.stops : [];
   const { startDate, endDate, ownerEmail, autoSettlement } = body;
-  // 출장 등록 시 한 번 정해지고 이후 바꿀 수 없다 - 값을 안 보내면(예: 예전 클라이언트) 기존
-  // 동작(자동정산)을 그대로 유지한다.
-  const autoSettlementValue = typeof autoSettlement === "boolean" ? autoSettlement : true;
+  // 출장 등록 시 한 번 정해지고 이후 바꿀 수 없다 - 값을 안 보내면 기본값(비활성화, 수동입력)을
+  // 쓴다. (2026-08-07 기본값을 자동정산 사용에서 미사용으로 변경)
+  const autoSettlementValue = typeof autoSettlement === "boolean" ? autoSettlement : false;
 
   const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   if (typeof ownerEmail !== "string" || !EMAIL_PATTERN.test(ownerEmail.trim())) {

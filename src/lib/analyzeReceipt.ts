@@ -30,6 +30,18 @@ export type AnalyzeReceiptInput = {
   lodgingAlreadyAcceptedInTrip?: number;
   /** 출장 단위 설정. false면 OCR을 아예 돌리지 않고 "제출"로만 기록한다(카테고리와 무관). */
   autoSettlement: boolean;
+  /**
+   * 자동정산 미사용 출장에서 사용자가 직접 입력한 금액 - 조식/교통(선박·항공)/숙박처럼 실비
+   * 항목에는 필수다(FIELD, 정액정산 교통수단은 불필요). 호출부(POST /api/receipts)가
+   * 이미 유효성 검사를 마친 값을 넘긴다.
+   */
+  manualAmount?: number | null;
+  /**
+   * 자동정산 미사용 출장의 조식 항목에서 사용자가 직접 입력한 결제 일시(한국 현지시각,
+   * "YYYY-MM-DDTHH:mm" 형식). 조식은 05:00~10:00 시간대 규정을 사람이 육안으로 확인해야
+   * 하므로 날짜뿐 아니라 시각까지 받는다.
+   */
+  manualDatetime?: string | null;
 };
 
 export type AnalyzeReceiptOutput = {
@@ -168,8 +180,15 @@ export function tripNights(trip: { startDate: Date; endDate: Date }): number {
 export async function analyzeReceipt(input: AnalyzeReceiptInput): Promise<AnalyzeReceiptOutput> {
   // 자동정산을 쓰지 않는 출장은 카테고리와 무관하게 OCR 자체를 건너뛰고 "제출"로만 기록한다 -
   // 인정/불인정 표현을 쓰면 자동으로 걸러진 것으로 오해할 수 있어서다. (2026-08-07)
+  // 대신 사용자가 직접 입력한 금액(+조식은 일시)을 그대로 기록해, 나중에 담당자가 확인할 수
+  // 있게 한다 (GAS 버전의 수동입력 방식을 참고, 2026-08-07 추가).
   if (!input.autoSettlement) {
-    return { ...NO_OCR_RESULT, verdict: verifySubmitted() };
+    const manualDate = input.manualDatetime ? parseKstDatetime(input.manualDatetime) : null;
+    return {
+      ...NO_OCR_RESULT,
+      ocrDateGuess: manualDate,
+      verdict: verifySubmitted(input.manualAmount ?? null),
+    };
   }
 
   if (input.category === "FIELD") {

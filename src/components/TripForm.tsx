@@ -61,7 +61,9 @@ export default function TripForm({
   const [startDate, setStartDate] = useState(initialStartDate ?? "");
   const [endDate, setEndDate] = useState(initialEndDate ?? "");
   const [stops, setStops] = useState<Stop[]>(() => toStops(initialStops));
-  const [autoSettlement, setAutoSettlement] = useState(true);
+  // 기본값은 비활성화(수동입력) - 무료 OCR 모델의 인식 오류/오탐이 실사용에서 반복 확인돼,
+  // 자동정산은 사용자가 명시적으로 켜기로 선택한 경우에만 쓰도록 한다. (2026-08-07)
+  const [autoSettlement, setAutoSettlement] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
