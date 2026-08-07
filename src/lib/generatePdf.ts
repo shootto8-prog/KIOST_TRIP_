@@ -200,11 +200,16 @@ class PdfWriter {
   /**
    * 정산서 맨 아래에 넣는 안내/홍보 이미지 - 영수증 사진과 달리 페이지 폭에 맞춰 가운데 정렬한다.
    * 가로는 본문 폭(CONTENT_WIDTH, 약 180mm)까지, 세로는 150pt(약 53mm)까지만 차지하도록 축소한다.
+   *
+   * 화면 배치 크기와 무관하게 원본 바이트가 그대로 삽입되는 pdf-lib의 특성상, 영수증 사진처럼
+   * 이 이미지도 먼저 축소·재인코딩한다 - 축소 없이 4128x1024 원본을 넣으면 정산서 1건당
+   * 약 506KB가 더 붙는 걸 실측으로 확인했다(2026-08-07 안정성 재검토, toPdfEmbeddableJpeg
+   * 적용 후 76KB로 감소).
    */
   async noticeImage(bytes: Buffer) {
     let embedded;
     try {
-      embedded = await this.doc.embedPng(bytes);
+      embedded = await this.doc.embedJpg(await toPdfEmbeddableJpeg(bytes));
     } catch (err) {
       console.error("Failed to embed settlement notice image:", err);
       return;
@@ -251,16 +256,20 @@ function countOrDash(count: number, suffix: string): string {
 }
 
 /**
- * 자동정산 미사용 출장의 조식/숙박/교통(선박·항공)은 판정이 아니라 사용자가 직접 입력한
- * 값이지만, 담당자가 실제 신청 건수·금액을 한눈에 봐야 하므로 PDF에는 "N건 제출, 금액원"
- * 형태로 함께 보여준다(2026-08-07). 입력값이 없는 경우(금액 0)는 건수만 표기한다.
+ * 자동정산 미사용 출장의 조식/숙박/교통(선박·항공)은 담당자가 실제 신청 건수·금액을 한눈에
+ * 봐야 하므로 PDF에 "N건 제출, 확인금액 000원"으로 함께 보여준다(2026-08-07). 여기 금액은
+ * 사용자가 처음 입력한 원금액이 아니라, 시간대/상한 등 구조적 규칙을 통과(또는 상한 적용)한
+ * "확인금액"이다 - 예를 들어 조식 3건 중 1건이 시간대 규정 위반으로 반려되면 그 건은 빠진
+ * 금액만 합산된다. "확인금액"이라는 표현으로 이 값이 신청 원금액과 다를 수 있음을 명시한다
+ * (2026-08-07 안정성 재검토 - 라벨이 신청액처럼 보인다는 지적 반영, 원금액까지 보여주려면
+ * DB에 별도 컬럼이 필요해 이번엔 라벨 명시로 대응).
  */
-function countAndAmount(count: number, amount: number): string {
+export function countAndAmount(count: number, amount: number): string {
   if (count === 0) return "-";
-  return amount > 0 ? `${count}건 제출, ${formatKrw(amount)}` : `${count}건 제출`;
+  return amount > 0 ? `${count}건 제출, 확인금액 ${formatKrw(amount)}` : `${count}건 제출`;
 }
 
-type TransportSummaryItem = { transportMode: string | null; verdictAmount: number | null };
+export type TransportSummaryItem = { transportMode: string | null; verdictAmount: number | null };
 
 /**
  * 교통 항목의 "내용" 칸: 항공/선박은 (자동정산이든 사용자 직접입력이든) 금액을, 고속철도/승용/
@@ -268,7 +277,7 @@ type TransportSummaryItem = { transportMode: string | null; verdictAmount: numbe
  * 표기한다(예: "고속철도"). 자동정산 미사용 출장의 선박/항공은 건수도 함께 보여준다
  * (2026-08-07 - 사용자 입력값이 PDF에 안 보인다는 실사용 피드백 반영).
  */
-function buildTransportCell(items: TransportSummaryItem[], autoSettlement: boolean): string {
+export function buildTransportCell(items: TransportSummaryItem[], autoSettlement: boolean): string {
   if (items.length === 0) return "-";
   const flatModes = new Set<string>(FLAT_RATE_TRANSPORT_MODES);
   const nonFlatItems = items.filter((r) => r.transportMode === "AIR" || r.transportMode === "SHIP");
@@ -283,7 +292,10 @@ function buildTransportCell(items: TransportSummaryItem[], autoSettlement: boole
     parts.push(countAndAmount(nonFlatItems.length, amountSum));
   }
   for (const m of flatModesUsed) parts.push(TRANSPORT_MODE_LABEL[m] ?? m);
-  return parts.length > 0 ? parts.join(", ") : "-";
+  if (parts.length > 0) return parts.join(", ");
+  // 교통수단이 없는(이론상 구버전) 영수증이 섞이면 위 분류에 하나도 안 걸려 등록된 건이
+  // 있는데도 "-"로 조용히 안 보일 수 있었다 - 최소한 건수는 남긴다. (2026-08-07 안정성 재검토)
+  return `${items.length}건 제출`;
 }
 
 export async function generateTripPdf(tripId: string): Promise<Uint8Array> {

@@ -66,7 +66,7 @@ export async function sendTripSettlementEmail(params: {
   const attachments: Mail.Attachment[] = [params.attachment];
   if (params.noticeImage) {
     attachments.push({
-      filename: "notice.png",
+      filename: params.noticeImage.contentType === "image/jpeg" ? "notice.jpg" : "notice.png",
       content: params.noticeImage.content,
       contentType: params.noticeImage.contentType,
       cid: NOTICE_IMAGE_CID,
