@@ -81,14 +81,14 @@ export default function DateYMDInput({
 
   return (
     <div className="shrink-0">
-      <div className="flex flex-nowrap items-center gap-1">
+      <div className="flex flex-nowrap items-center gap-0.5">
         <input
           type="text"
           inputMode="numeric"
           placeholder="YYYY"
           value={parts.y}
           onChange={(e) => set("y", e.target.value, 4)}
-          className={`w-14 shrink-0 ${inputClass}`}
+          className={`w-12 shrink-0 ${inputClass}`}
         />
         <span className="shrink-0 text-[13px] text-neutral-400">년</span>
         <input
@@ -97,7 +97,7 @@ export default function DateYMDInput({
           placeholder="MM"
           value={parts.m}
           onChange={(e) => set("m", e.target.value, 2)}
-          className={`w-9 shrink-0 ${inputClass}`}
+          className={`w-8 shrink-0 ${inputClass}`}
         />
         <span className="shrink-0 text-[13px] text-neutral-400">월</span>
         <input
@@ -106,7 +106,7 @@ export default function DateYMDInput({
           placeholder="DD"
           value={parts.d}
           onChange={(e) => set("d", e.target.value, 2)}
-          className={`w-9 shrink-0 ${inputClass}`}
+          className={`w-8 shrink-0 ${inputClass}`}
         />
         <span className="shrink-0 text-[13px] text-neutral-400">일</span>
 
@@ -114,7 +114,7 @@ export default function DateYMDInput({
           type="button"
           onClick={openPicker}
           aria-label="달력에서 날짜 선택"
-          className="flex size-8 shrink-0 items-center justify-center rounded-lg text-neutral-400 hover:bg-brand/10 hover:text-brand dark:hover:bg-white/10 dark:hover:text-brand-light"
+          className="flex size-7 shrink-0 items-center justify-center rounded-lg text-neutral-400 hover:bg-brand/10 hover:text-brand dark:hover:bg-white/10 dark:hover:text-brand-light"
         >
           <IconCalendar />
         </button>

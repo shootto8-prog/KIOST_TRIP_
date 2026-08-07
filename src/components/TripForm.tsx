@@ -169,7 +169,7 @@ export default function TripForm({
 
       <div className="mt-4 rounded-2xl border border-black/5 bg-neutral-50 p-3 dark:border-white/10 dark:bg-white/5">
         <p className="text-[13px] font-medium text-neutral-500">출장기간</p>
-        <div className="mt-2 flex flex-nowrap items-center gap-1.5 overflow-x-auto">
+        <div className="mt-2 flex flex-nowrap items-center gap-1 overflow-x-auto">
           <DateYMDInput value={startDate} onChange={setStartDate} />
           <span className="shrink-0 text-neutral-400">~</span>
           <DateYMDInput value={endDate} onChange={setEndDate} />
