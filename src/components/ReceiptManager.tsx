@@ -7,6 +7,7 @@ import { IconCamera, IconPhoto, IconTrash, IconPdf, IconPlus } from "./icons";
 import type { ReceiptItem } from "@/lib/receipt";
 import { VERDICT_LABEL } from "@/lib/format";
 import { FLAT_RATE_TRANSPORT_MODES } from "@/lib/verifyReceipt";
+import { getKstParts } from "@/lib/kst";
 
 export type { ReceiptItem };
 
@@ -33,6 +34,14 @@ function formatOcrDate(iso: string | null): string {
 
 function formatOcrAmount(amount: number | null): string {
   return amount === null ? "인식 안 됨" : `${amount.toLocaleString("ko-KR")}원`;
+}
+
+/** epoch ms를 <input type="datetime-local">이 요구하는 "YYYY-MM-DDTHH:mm" 문자열로, 항상
+ * 한국 시각 기준으로 바꾼다 - 촬영 시각 자동입력용. */
+function toKstDatetimeLocalValue(epochMs: number): string {
+  const { year, month, day, hour, minute } = getKstParts(new Date(epochMs));
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${year}-${pad(month + 1)}-${pad(day)}T${pad(hour)}:${pad(minute)}`;
 }
 
 const VERDICT_BADGE_CLASS: Record<ReceiptItem["verdictStatus"], string> = {
@@ -132,9 +141,10 @@ function VerdictBanner({
           </span>
         )}
       </div>
-      {receipt.verdictStatus === "SUBMITTED" && receipt.ocrDateGuess && (
-        // 자동정산 미사용 조식은 OCR을 안 돌려 "인식 결과" 카드 자체가 안 뜬다 - 직접 입력한
-        // 일시를 그대로 잃어버리지 않도록 여기 배너에 보여준다.
+      {receipt.ocrStatus === "PENDING" && receipt.ocrDateGuess && (
+        // 자동정산 미사용 조식은 OCR을 안 돌려 "인식 결과" 카드 자체가 안 뜬다(ocrStatus가
+        // 항상 PENDING) - 직접 입력한 일시를 그대로 잃어버리지 않도록 여기 배너에 보여준다.
+        // 판정 결과(인정/불인정 등)와 무관하게, 입력값이 있으면 항상 보여준다.
         <p className="mt-1 text-[12.5px] text-neutral-500 dark:text-neutral-400">
           입력한 일시: {formatOcrDate(receipt.ocrDateGuess)}
         </p>
@@ -278,6 +288,7 @@ export default function ReceiptManager({
   const [reanalyzingId, setReanalyzingId] = useState<string | null>(null);
   const [manualAmount, setManualAmount] = useState("");
   const [manualDatetime, setManualDatetime] = useState("");
+  const [manualSeatClass, setManualSeatClass] = useState<"" | "NORMAL" | "RESTRICTED">("");
   const galleryInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
 
@@ -290,6 +301,10 @@ export default function ReceiptManager({
   // 사람이 눈으로 확인해야 하므로 일시도 함께 받는다. (GAS 버전 수동입력 방식 참고, 2026-08-07)
   const needsManualAmount = !autoSettlement && category !== "FIELD" && !flatRate;
   const needsManualDatetime = !autoSettlement && isBreakfast;
+  // 선박/항공은 좌석등급이 규정 위반(1등석/특실, 비즈니스/퍼스트 등)이면 반려된다 - 텍스트 인식
+  // 없이도 사용자가 직접 고르면 바로 판정 가능하다. (GAS 참고, 2026-08-07)
+  const needsSeatClass = !autoSettlement && category === "TRANSPORT" && !flatRate;
+  const restrictedClassLabel = transportMode === "SHIP" ? "1등실 / 특실" : "비즈니스 / 퍼스트 클래스";
 
   function addFiles(files: FileList | null) {
     if (!files || files.length === 0) return;
@@ -300,6 +315,12 @@ export default function ReceiptManager({
       url: URL.createObjectURL(file),
     }));
     setQueue((prev) => (isBreakfast ? incoming.slice(0, 1) : [...prev, ...incoming]));
+    // 조식은 결제 일시를 매번 손으로 입력하기 번거로우니, 사진의 촬영/생성 시각(File.lastModified -
+    // 카메라로 막 찍었으면 지금 이 순간과 사실상 같고, 갤러리의 예전 사진이면 그 사진의 실제
+    // 시각이라 오히려 더 정확하다)으로 미리 채워둔다. 물론 사용자가 직접 고쳐 쓸 수 있다.
+    if (needsManualDatetime && incoming.length > 0) {
+      setManualDatetime(toKstDatetimeLocalValue(incoming[0].file.lastModified));
+    }
   }
 
   function onGalleryPicked(e: React.ChangeEvent<HTMLInputElement>) {
@@ -320,6 +341,7 @@ export default function ReceiptManager({
     setQueue([]);
     setManualAmount("");
     setManualDatetime("");
+    setManualSeatClass("");
     setError(null);
   }
 
@@ -337,6 +359,10 @@ export default function ReceiptManager({
     }
     if (needsManualDatetime && !manualDatetime.trim()) {
       setError("결제 일시를 입력해 주세요.");
+      return;
+    }
+    if (needsSeatClass && !manualSeatClass) {
+      setError("좌석등급을 선택해 주세요.");
       return;
     }
     setUploading(true);
@@ -379,6 +405,7 @@ export default function ReceiptManager({
           blobs,
           ...(needsManualAmount ? { manualAmount: parsedAmount } : {}),
           ...(needsManualDatetime ? { manualDatetime } : {}),
+          ...(needsSeatClass ? { seatClass: manualSeatClass } : {}),
         }),
       });
       const data = await res.json().catch(() => null);
@@ -397,6 +424,7 @@ export default function ReceiptManager({
       setQueue([]);
       setManualAmount("");
       setManualDatetime("");
+      setManualSeatClass("");
       setUploading(false);
       router.refresh();
     } catch (err) {
@@ -555,7 +583,7 @@ export default function ReceiptManager({
               </>
             )}
           </div>
-          {(needsManualAmount || needsManualDatetime) && (
+          {(needsManualAmount || needsManualDatetime || needsSeatClass) && (
             <div className="mt-3 space-y-2.5">
               {needsManualAmount && (
                 <div>
@@ -584,6 +612,24 @@ export default function ReceiptManager({
                     onChange={(e) => setManualDatetime(e.target.value)}
                     className="w-full rounded-xl border border-black/10 bg-white px-3 py-2.5 text-[15px] text-neutral-900 outline-none focus:border-brand dark:border-white/15 dark:bg-white/5 dark:text-neutral-100"
                   />
+                </div>
+              )}
+              {needsSeatClass && (
+                <div>
+                  <label className="mb-1 block text-[12.5px] font-medium text-neutral-600 dark:text-neutral-300">
+                    좌석등급
+                  </label>
+                  <select
+                    value={manualSeatClass}
+                    onChange={(e) => setManualSeatClass(e.target.value as "" | "NORMAL" | "RESTRICTED")}
+                    className="w-full rounded-xl border border-black/10 bg-white px-3 py-2.5 text-[15px] text-neutral-900 outline-none focus:border-brand dark:border-white/15 dark:bg-white/5 dark:text-neutral-100"
+                  >
+                    <option value="" disabled>
+                      선택해 주세요
+                    </option>
+                    <option value="NORMAL">일반석</option>
+                    <option value="RESTRICTED">{restrictedClassLabel}</option>
+                  </select>
                 </div>
               )}
             </div>
