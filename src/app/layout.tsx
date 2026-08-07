@@ -11,7 +11,7 @@ export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="ko">
+    <html lang="ko" suppressHydrationWarning>
       <head>
         {/* 화면이 그려지기 전에 저장된 테마(없으면 OS 설정)를 <html>에 반영해, 다크모드
             사용자에게 밝은 화면이 잠깐 번쩍이는 걸 막는다. */}

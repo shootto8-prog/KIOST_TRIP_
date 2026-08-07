@@ -10,8 +10,11 @@
   --color-brand-light: #8dc2ff;
 }
 
+/* 네이티브 위젯(달력 피커, 스크롤바 등) 색도 .dark 여부만 따라가게 한다 - "light dark"로
+   두면 OS가 다크인데 사용자가 라이트를 골랐을 때 이 위젯들만 계속 어둡게 남는다.
+   (2026-08-07 안정성 재검토 반영) */
 :root {
-  color-scheme: light dark;
+  color-scheme: light;
 }
 
 :root.dark {
