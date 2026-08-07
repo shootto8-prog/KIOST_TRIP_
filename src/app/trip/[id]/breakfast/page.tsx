@@ -25,9 +25,8 @@ export default async function BreakfastPage({
     <main className="space-y-6">
       <CategoryPageHeader
         tripId={id}
-        icon={<IconBreakfast className="size-6 text-amber-600 dark:text-amber-400" />}
+        icon={<IconBreakfast className="size-12" />}
         title="조식"
-        accent="bg-amber-500/10"
       />
       <ReceiptManager
         tripId={id}
