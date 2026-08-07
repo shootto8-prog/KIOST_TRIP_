@@ -25,9 +25,8 @@ export default async function LodgingPage({
     <main className="space-y-6">
       <CategoryPageHeader
         tripId={id}
-        icon={<IconLodging className="size-6 text-violet-600 dark:text-violet-400" />}
+        icon={<IconLodging className="size-12" />}
         title="숙박"
-        accent="bg-violet-500/10"
       />
       <ReceiptManager
         tripId={id}
