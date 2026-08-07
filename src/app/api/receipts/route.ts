@@ -14,7 +14,6 @@ import { isFlatRateTransportMode } from "@/lib/verifyReceipt";
 
 const CATEGORIES = ["BREAKFAST", "TRANSPORT", "LODGING", "FIELD"] as const;
 const TRANSPORT_MODES = ["SHIP", "AIR", "RAIL", "PRIVATE_CAR", "BUS"] as const;
-const SEAT_CLASSES = ["NORMAL", "RESTRICTED"] as const;
 
 /** 원본 Blob을 다시 읽어오는 데 무한정 기다리지 않는다 (항목 6: 외부 호출 타임아웃). */
 const BLOB_FETCH_TIMEOUT_MS = 15_000;
@@ -51,7 +50,6 @@ export async function POST(req: NextRequest) {
     tripId,
     category,
     transportMode: transportModeRaw,
-    seatClass: seatClassRaw,
     blobs,
     manualAmount: manualAmountRaw,
     manualDatetime: manualDatetimeRaw,
@@ -59,7 +57,6 @@ export async function POST(req: NextRequest) {
     tripId?: string;
     category?: string;
     transportMode?: string;
-    seatClass?: string;
     blobs?: UploadedBlob[];
     manualAmount?: unknown;
     manualDatetime?: unknown;
@@ -94,10 +91,6 @@ export async function POST(req: NextRequest) {
     }
     transportMode = transportModeRaw as (typeof TRANSPORT_MODES)[number];
   }
-  let seatClass: (typeof SEAT_CLASSES)[number] | null = null;
-  if (typeof seatClassRaw === "string" && SEAT_CLASSES.includes(seatClassRaw as any)) {
-    seatClass = seatClassRaw as (typeof SEAT_CLASSES)[number];
-  }
 
   const trip = await prisma.trip.findUnique({
     where: { id: tripId },
@@ -118,7 +111,6 @@ export async function POST(req: NextRequest) {
   let manualAmount: number | null = null;
   let manualDatetime: string | null = null;
   if (!trip.autoSettlement) {
-    const isNonFlatTransport = category === "TRANSPORT" && !(transportMode && isFlatRateTransportMode(transportMode));
     const needsAmount = category !== "FIELD" && !(transportMode && isFlatRateTransportMode(transportMode));
     if (needsAmount) {
       const parsedAmount = typeof manualAmountRaw === "number" ? manualAmountRaw : Number(manualAmountRaw);
@@ -132,12 +124,6 @@ export async function POST(req: NextRequest) {
         return failWith("결제 일시를 입력해 주세요.", 400);
       }
       manualDatetime = manualDatetimeRaw;
-    }
-    // 선박/항공은 규정상 좌석등급(class_restriction)을 확인해야 하므로 명시적 선택이 필요하다 -
-    // 미선택(seatClass가 여기서 계속 null)을 "일반석"으로 조용히 간주하면 실제로는 제한 등급인데도
-    // 통과시킬 위험이 있다. (GAS의 필수입력 검증 그대로 참고, 2026-08-07)
-    if (isNonFlatTransport && !seatClass) {
-      return failWith("좌석등급을 선택해 주세요.", 400);
     }
   }
 
@@ -288,7 +274,6 @@ export async function POST(req: NextRequest) {
       autoSettlement: trip.autoSettlement,
       manualAmount,
       manualDatetime,
-      manualSeatClass: seatClass,
     });
   } catch (err) {
     console.error("Receipt analysis failed:", err);
@@ -300,7 +285,6 @@ export async function POST(req: NextRequest) {
       tripId,
       category: category as (typeof CATEGORIES)[number],
       transportMode,
-      seatClass,
       images: {
         create: savedImages.map((img, i) => ({ path: img.path, thumbPath: img.thumbPath, order: i })),
       },
