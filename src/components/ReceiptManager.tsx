@@ -304,7 +304,10 @@ export default function ReceiptManager({
   // 선박/항공은 좌석등급이 규정 위반(1등석/특실, 비즈니스/퍼스트 등)이면 반려된다 - 텍스트 인식
   // 없이도 사용자가 직접 고르면 바로 판정 가능하다. (GAS 참고, 2026-08-07)
   const needsSeatClass = !autoSettlement && category === "TRANSPORT" && !flatRate;
-  const restrictedClassLabel = transportMode === "SHIP" ? "1등실 / 특실" : "비즈니스 / 퍼스트 클래스";
+  // 선박은 1등/2등, 항공은 비즈니스/일반석으로 구분해서 보여준다 - 규정상 인정 안 되는 등급
+  // (선박 1등, 항공 비즈니스)을 고르면 반려된다. (2026-08-07)
+  const normalClassLabel = transportMode === "SHIP" ? "2등" : "일반석";
+  const restrictedClassLabel = transportMode === "SHIP" ? "1등" : "비즈니스";
 
   function addFiles(files: FileList | null) {
     if (!files || files.length === 0) return;
@@ -629,7 +632,7 @@ export default function ReceiptManager({
                     <option value="" disabled>
                       선택해 주세요
                     </option>
-                    <option value="NORMAL">일반석</option>
+                    <option value="NORMAL">{normalClassLabel}</option>
                     <option value="RESTRICTED">{restrictedClassLabel}</option>
                   </select>
                 </div>
