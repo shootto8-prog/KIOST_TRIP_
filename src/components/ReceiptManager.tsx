@@ -315,11 +315,13 @@ export default function ReceiptManager({
       url: URL.createObjectURL(file),
     }));
     setQueue((prev) => (isBreakfast ? incoming.slice(0, 1) : [...prev, ...incoming]));
-    // 조식은 결제 일시를 매번 손으로 입력하기 번거로우니, 사진의 촬영/생성 시각(File.lastModified -
-    // 카메라로 막 찍었으면 지금 이 순간과 사실상 같고, 갤러리의 예전 사진이면 그 사진의 실제
-    // 시각이라 오히려 더 정확하다)으로 미리 채워둔다. 물론 사용자가 직접 고쳐 쓸 수 있다.
+    // 조식은 결제 일시를 매번 손으로 입력하기 번거로우니, 사진을 큐에 담는 지금 이 순간(브라우저
+    // 현재 시각)으로 미리 채워둔다. 카메라로 막 찍은 경우 사실상 촬영 시각과 같다. 처음엔
+    // File.lastModified(파일 메타데이터의 촬영/생성 시각)를 썼는데, 일부 모바일 브라우저에서
+    // 이 값이 실제 촬영 시각과 다르게 나오는 경우가 확인돼 더 신뢰할 수 있는 Date.now()로
+    // 바꿨다. 물론 사용자가 직접 고쳐 쓸 수 있다. (2026-08-07)
     if (needsManualDatetime && incoming.length > 0) {
-      setManualDatetime(toKstDatetimeLocalValue(incoming[0].file.lastModified));
+      setManualDatetime(toKstDatetimeLocalValue(Date.now()));
     }
   }
 
