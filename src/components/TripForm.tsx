@@ -61,6 +61,7 @@ export default function TripForm({
   const [startDate, setStartDate] = useState(initialStartDate ?? "");
   const [endDate, setEndDate] = useState(initialEndDate ?? "");
   const [stops, setStops] = useState<Stop[]>(() => toStops(initialStops));
+  const [autoSettlement, setAutoSettlement] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -114,6 +115,9 @@ export default function TripForm({
           startDate,
           endDate,
           stops: stops.map(({ type, location }) => ({ type, location })),
+          // 등록(신규) 시에만 의미가 있다 - 등록 후에는 바꿀 수 없어 수정 모드에서는 아예 보내지
+          // 않는다(PATCH 라우트도 이 필드를 다루지 않는다).
+          ...(isEdit ? {} : { autoSettlement }),
         }),
       });
       const data = await res.json();
@@ -171,6 +175,42 @@ export default function TripForm({
           <DateYMDInput value={endDate} onChange={setEndDate} />
         </div>
       </div>
+
+      {!isEdit && (
+        <div className="mt-4 rounded-2xl border border-black/5 bg-neutral-50 p-3 dark:border-white/10 dark:bg-white/5">
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-[14px] font-semibold text-neutral-900 dark:text-neutral-100">
+                자동정산 (AI 판정)
+              </p>
+              <p className="mt-0.5 text-[12px] text-neutral-400">
+                {autoSettlement
+                  ? "사진을 올리면 AI가 규정에 따라 인정/불인정을 자동으로 판정합니다."
+                  : "AI 판정 없이 증빙 사진만 제출합니다. 담당자가 직접 확인해 정산합니다."}
+              </p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={autoSettlement}
+              aria-label="자동정산 사용 여부"
+              onClick={() => setAutoSettlement((v) => !v)}
+              className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors ${
+                autoSettlement ? "bg-brand" : "bg-neutral-300 dark:bg-white/20"
+              }`}
+            >
+              <span
+                className={`inline-block size-5 transform rounded-full bg-white shadow transition-transform ${
+                  autoSettlement ? "translate-x-6" : "translate-x-1"
+                }`}
+              />
+            </button>
+          </div>
+          <p className="mt-2 text-[11px] text-neutral-400">
+            출장 등록 후에는 바꿀 수 없어요. 신중히 선택해 주세요.
+          </p>
+        </div>
+      )}
 
       <div className="mt-4 space-y-2">
         {stops.map((s) => (

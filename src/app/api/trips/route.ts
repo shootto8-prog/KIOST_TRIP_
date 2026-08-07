@@ -14,7 +14,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "요청 형식이 올바르지 않습니다." }, { status: 400 });
   }
   const stops: StopInput[] = Array.isArray(body.stops) ? body.stops : [];
-  const { startDate, endDate, ownerEmail } = body;
+  const { startDate, endDate, ownerEmail, autoSettlement } = body;
+  // 출장 등록 시 한 번 정해지고 이후 바꿀 수 없다 - 값을 안 보내면(예: 예전 클라이언트) 기존
+  // 동작(자동정산)을 그대로 유지한다.
+  const autoSettlementValue = typeof autoSettlement === "boolean" ? autoSettlement : true;
 
   const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   if (typeof ownerEmail !== "string" || !EMAIL_PATTERN.test(ownerEmail.trim())) {
@@ -50,6 +53,7 @@ export async function POST(req: NextRequest) {
   const trip = await prisma.trip.create({
     data: {
       ownerEmail: ownerEmail.trim(),
+      autoSettlement: autoSettlementValue,
       startDate: parsedStart,
       endDate: parsedEnd,
       stops: {

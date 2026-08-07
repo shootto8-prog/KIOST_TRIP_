@@ -3,10 +3,20 @@ import fontkit from "@pdf-lib/fontkit";
 import { readFile } from "fs/promises";
 import path from "path";
 import { prisma } from "./prisma";
-import { CATEGORY_LABEL, STOP_TYPE_LABEL, VERDICT_LABEL, formatDate, formatDateTime } from "./format";
+import {
+  CATEGORY_LABEL,
+  STOP_TYPE_LABEL,
+  VERDICT_LABEL,
+  TRANSPORT_MODE_LABEL,
+  formatDate,
+  formatDateTime,
+  formatKrw,
+} from "./format";
 import { getTripWithSummary } from "./tripSummary";
 import { toPdfEmbeddableJpeg } from "./imageConvert";
 import { readSettlementNoticeImage } from "./settlementNoticeImage";
+import { FLAT_RATE_TRANSPORT_MODES } from "./verifyReceipt";
+import { fetchPrivateBlob, PrivateBlobFetchError } from "./blobFetch";
 
 /** 사진 한 장이 응답하지 않아도 정산서 생성 전체가 무한 대기하지 않도록 상한을 둔다. */
 const IMAGE_FETCH_TIMEOUT_MS = 15_000;
@@ -64,6 +74,57 @@ class PdfWriter {
     this.y -= h;
   }
 
+  /** 구분/내용 2열 표를 테두리 박스로 그린다 (항목별 합계용). */
+  table(rows: { label: string; value: string }[]) {
+    const labelW = 92;
+    const rowH = 24;
+    const headerH = 24;
+    const totalH = headerH + rows.length * rowH;
+    this.ensureSpace(totalH + 12);
+
+    const top = this.y;
+    const left = MARGIN;
+    const borderColor = rgb(0.82, 0.82, 0.85);
+    const headerBg = rgb(0.95, 0.96, 0.98);
+
+    this.page.drawRectangle({ x: left, y: top - headerH, width: CONTENT_WIDTH, height: headerH, color: headerBg });
+    this.page.drawRectangle({
+      x: left,
+      y: top - totalH,
+      width: CONTENT_WIDTH,
+      height: totalH,
+      borderColor,
+      borderWidth: 1,
+    });
+    this.page.drawLine({
+      start: { x: left + labelW, y: top },
+      end: { x: left + labelW, y: top - totalH },
+      thickness: 1,
+      color: borderColor,
+    });
+    for (let i = 1; i <= rows.length; i++) {
+      const y = top - headerH - i * rowH;
+      this.page.drawLine({ start: { x: left, y }, end: { x: left + CONTENT_WIDTH, y }, thickness: 0.5, color: borderColor });
+    }
+
+    this.page.drawText("구분", { x: left + 8, y: top - headerH + 7, size: 10.5, font: this.bold, color: COLOR_TEXT });
+    this.page.drawText("내용", {
+      x: left + labelW + 8,
+      y: top - headerH + 7,
+      size: 10.5,
+      font: this.bold,
+      color: COLOR_TEXT,
+    });
+
+    rows.forEach((r, i) => {
+      const textY = top - headerH - i * rowH - rowH + 7;
+      this.page.drawText(r.label, { x: left + 8, y: textY, size: 10.5, font: this.bold, color: COLOR_TEXT });
+      this.page.drawText(r.value, { x: left + labelW + 8, y: textY, size: 10.5, font: this.font, color: COLOR_TEXT });
+    });
+
+    this.y = top - totalH - 12;
+  }
+
   hr() {
     this.ensureSpace(14);
     this.page.drawLine({
@@ -81,14 +142,12 @@ class PdfWriter {
     let bytes: Buffer;
     try {
       if (/^https?:\/\//.test(imagePath)) {
-        const res = await fetch(imagePath, { signal: AbortSignal.timeout(IMAGE_FETCH_TIMEOUT_MS) });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        bytes = Buffer.from(await res.arrayBuffer());
+        bytes = await fetchPrivateBlob(imagePath, IMAGE_FETCH_TIMEOUT_MS);
       } else {
         bytes = await readFile(path.join(process.cwd(), "public", imagePath));
       }
     } catch (err) {
-      const timedOut = err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError");
+      const timedOut = err instanceof PrivateBlobFetchError && err.timedOut;
       this.text(
         timedOut
           ? "(첨부 이미지를 시간 내에 불러오지 못했습니다)"
@@ -182,17 +241,53 @@ const SETTLED_CATEGORIES = ["BREAKFAST", "TRANSPORT", "LODGING"] as const;
 const FOOTER_DISCLAIMER =
   "본 자료는 최종확정이 아니며, 담당자의 검토과정에서 조정, 반려될 수 있습니다.";
 
+/** 금액이 있으면 "N원", 없으면(0원) "-"로 표기한다. */
+function amountOrDash(amount: number): string {
+  return amount > 0 ? formatKrw(amount) : "-";
+}
+
+function countOrDash(count: number, suffix: string): string {
+  return count > 0 ? `${count}${suffix}` : "-";
+}
+
+type TransportSummaryItem = { transportMode: string | null; verdictAmount: number | null };
+
+/**
+ * 교통 항목의 "내용" 칸: 항공/선박은 인정금액을, 고속철도/승용/버스는 정액정산이라 금액이
+ * 없으므로 그 교통수단에 서류를 제출했다는 사실 자체를 항목명으로 표기한다(예: "고속철도").
+ * 둘 다 있으면 함께 나열한다.
+ */
+function buildTransportCell(items: TransportSummaryItem[], autoSettlement: boolean): string {
+  if (items.length === 0) return "-";
+  if (!autoSettlement) return `${items.length}건 제출`;
+  const flatModes = new Set<string>(FLAT_RATE_TRANSPORT_MODES);
+  const amountSum = items
+    .filter((r) => r.transportMode === "AIR" || r.transportMode === "SHIP")
+    .reduce((s, r) => s + (r.verdictAmount ?? 0), 0);
+  const flatModesUsed = Array.from(
+    new Set(items.filter((r) => r.transportMode && flatModes.has(r.transportMode)).map((r) => r.transportMode as string))
+  );
+  const parts: string[] = [];
+  if (amountSum > 0) parts.push(formatKrw(amountSum));
+  for (const m of flatModesUsed) parts.push(TRANSPORT_MODE_LABEL[m] ?? m);
+  return parts.length > 0 ? parts.join(", ") : "-";
+}
+
 export async function generateTripPdf(tripId: string): Promise<Uint8Array> {
   const data = await getTripWithSummary(tripId);
   if (!data) throw new Error("출장 정보를 찾을 수 없습니다.");
   const { trip, byCategory, sumByCategory, totalAmount } = data;
 
+  const titleText = trip.ownerEmail
+    ? `국내여비 증빙서류 내역서(${trip.ownerEmail})`
+    : "국내여비 증빙서류 내역서";
+
   const doc = await PDFDocument.create();
-  doc.setTitle("국내여비 실비정산 내역");
+  doc.setTitle(titleText);
   const { regular, bold } = await embedKoreanFonts(doc);
   const w = new PdfWriter(doc, regular, bold);
 
-  w.text("국내여비 실비정산 내역", { size: 20, bold: true, gap: 30 });
+  w.text(titleText, { size: 18, bold: true, gap: 28 });
   w.text(`생성일시: ${formatDateTime(new Date())}`, { size: 9, color: COLOR_MUTED, gap: 20 });
 
   w.text(`출장기간   ${formatDate(trip.startDate)} ~ ${formatDate(trip.endDate)}`, {
@@ -211,20 +306,38 @@ export async function generateTripPdf(tripId: string): Promise<Uint8Array> {
   w.hr();
 
   w.text("항목별 합계", { size: 13, bold: true, gap: 20 });
-  for (const c of SETTLED_CATEGORIES) {
-    w.text(
-      `${CATEGORY_LABEL[c]}   ${byCategory[c].length}건   ${sumByCategory[c].toLocaleString("ko-KR")}원`,
-      { size: 11, gap: 18 }
-    );
-  }
-  w.text(`현장사진   ${byCategory.FIELD.length}건`, { size: 11, gap: 18 });
+  w.table([
+    {
+      label: CATEGORY_LABEL.BREAKFAST,
+      value: trip.autoSettlement
+        ? amountOrDash(sumByCategory.BREAKFAST)
+        : countOrDash(byCategory.BREAKFAST.length, "건 제출"),
+    },
+    { label: CATEGORY_LABEL.TRANSPORT, value: buildTransportCell(byCategory.TRANSPORT, trip.autoSettlement) },
+    {
+      label: CATEGORY_LABEL.LODGING,
+      value: trip.autoSettlement
+        ? amountOrDash(sumByCategory.LODGING)
+        : countOrDash(byCategory.LODGING.length, "건 제출"),
+    },
+    { label: "현장사진", value: countOrDash(byCategory.FIELD.length, "건") },
+  ]);
   w.spacer(4);
-  w.text(`전체 합계   ${totalAmount.toLocaleString("ko-KR")}원`, {
-    size: 15,
-    bold: true,
-    color: COLOR_ACCENT,
-    gap: 28,
-  });
+  if (trip.autoSettlement) {
+    w.text(`전체 합계   ${totalAmount.toLocaleString("ko-KR")}원`, {
+      size: 15,
+      bold: true,
+      color: COLOR_ACCENT,
+      gap: 28,
+    });
+  } else {
+    w.text("자동정산 미사용 - 담당자가 제출 서류를 확인해 금액을 확정합니다.", {
+      size: 12,
+      bold: true,
+      color: COLOR_ACCENT,
+      gap: 28,
+    });
+  }
   w.hr();
 
   for (const c of SETTLED_CATEGORIES) {
@@ -240,18 +353,22 @@ export async function generateTripPdf(tripId: string): Promise<Uint8Array> {
         r.verdictStatus === "REJECTED" ? COLOR_REJECTED : r.verdictStatus === "PARTIAL" ? COLOR_PARTIAL : COLOR_TEXT;
 
       w.ensureSpace(60);
-      w.text(`[${statusLabel}] ${r.ocrMerchantGuess ?? "상호명 인식 안 됨"}`, {
-        size: 11.5,
-        bold: true,
-        color: statusColor,
-        gap: 16,
-      });
+      // 자동정산 미사용 출장은 OCR을 아예 안 돌려 상호명/금액이 항상 비어 있다 - "인식 안 됨"을
+      // 나열하면 마치 인식에 실패한 것처럼 보이니, 접수 시각만 보여준다.
       w.text(
-        `  일시: ${r.ocrDateGuess ? formatDateTime(r.ocrDateGuess) : "인식 안 됨"}   ` +
-          `인식금액: ${r.ocrAmountGuess !== null ? r.ocrAmountGuess.toLocaleString("ko-KR") + "원" : "인식 안 됨"}   ` +
-          `인정금액: ${r.verdictAmount !== null ? r.verdictAmount.toLocaleString("ko-KR") + "원" : "-"}`,
-        { size: 10, color: COLOR_MUTED, gap: 15 }
+        r.verdictStatus === "SUBMITTED" ? `[${statusLabel}]` : `[${statusLabel}] ${r.ocrMerchantGuess ?? "상호명 인식 안 됨"}`,
+        { size: 11.5, bold: true, color: statusColor, gap: 16 }
       );
+      if (r.verdictStatus === "SUBMITTED") {
+        w.text(`  제출일시: ${formatDateTime(r.createdAt)}`, { size: 10, color: COLOR_MUTED, gap: 15 });
+      } else {
+        w.text(
+          `  일시: ${r.ocrDateGuess ? formatDateTime(r.ocrDateGuess) : "인식 안 됨"}   ` +
+            `인식금액: ${r.ocrAmountGuess !== null ? r.ocrAmountGuess.toLocaleString("ko-KR") + "원" : "인식 안 됨"}   ` +
+            `인정금액: ${r.verdictAmount !== null ? r.verdictAmount.toLocaleString("ko-KR") + "원" : "-"}`,
+          { size: 10, color: COLOR_MUTED, gap: 15 }
+        );
+      }
       if (r.verdictMessage) {
         w.text(`  ${r.verdictMessage}`, { size: 10, color: statusColor, gap: 15 });
       }

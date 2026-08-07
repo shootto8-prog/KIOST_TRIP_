@@ -110,7 +110,9 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
   }
 
   const blobUrls = [
-    ...new Set(trip.receipts.flatMap((r) => r.images.map((img) => img.path)).filter(Boolean)),
+    ...new Set(
+      trip.receipts.flatMap((r) => r.images.flatMap((img) => [img.path, img.thumbPath])).filter((u): u is string => !!u)
+    ),
   ];
 
   await prisma.trip.delete({ where: { id } });

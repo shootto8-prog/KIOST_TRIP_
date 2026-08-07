@@ -6,7 +6,7 @@ import { getKstParts } from "./kst";
  * 추정값으로만 읽어낸 경우처럼, 그 값을 그대로 정산에 반영하면 위험한 상황에 쓴다.
  * (DB/화면의 VerdictStatus에는 이미 PENDING이 있어 별도 마이그레이션이 필요 없다.)
  */
-export type VerdictStatus = "PENDING" | "APPROVED" | "PARTIAL" | "REJECTED";
+export type VerdictStatus = "PENDING" | "APPROVED" | "PARTIAL" | "REJECTED" | "SUBMITTED";
 
 export type VerificationResult = {
   status: VerdictStatus;
@@ -141,6 +141,15 @@ export function isFlatRateTransportMode(mode: string): boolean {
 /** 현장사진: 판정 대상이 아니라 그냥 증빙 기록이라 항상 인정 처리한다. */
 export function verifyFieldPhoto(): VerificationResult {
   return { status: "APPROVED", acceptedAmount: null, message: null, failedCheckId: null, regulationRef: "" };
+}
+
+/**
+ * 자동정산을 사용하지 않는 출장: OCR/판정 없이 "제출됨" 상태만 기록한다. 인정/불인정 같은
+ * 판정 표현을 쓰면 담당자가 자동으로 걸러진 것으로 오해할 수 있어, 항목과 무관하게 항상
+ * 이 결과를 쓴다(analyzeReceipt.ts에서 카테고리 분기보다 먼저 처리).
+ */
+export function verifySubmitted(): VerificationResult {
+  return { status: "SUBMITTED", acceptedAmount: null, message: null, failedCheckId: null, regulationRef: "" };
 }
 
 export type BreakfastInput = {

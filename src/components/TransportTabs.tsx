@@ -11,9 +11,11 @@ const MODES: TransportMode[] = ["SHIP", "AIR", "RAIL", "PRIVATE_CAR", "BUS"];
 export default function TransportTabs({
   tripId,
   receiptsByMode,
+  autoSettlement,
 }: {
   tripId: string;
   receiptsByMode: Record<TransportMode, ReceiptItem[]>;
+  autoSettlement: boolean;
 }) {
   const [mode, setMode] = useState<TransportMode>("SHIP");
 
@@ -40,6 +42,7 @@ export default function TransportTabs({
         category="TRANSPORT"
         transportMode={mode}
         initialReceipts={receiptsByMode[mode]}
+        autoSettlement={autoSettlement}
       />
     </div>
   );

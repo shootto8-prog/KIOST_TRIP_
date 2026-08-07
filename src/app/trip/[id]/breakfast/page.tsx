@@ -33,6 +33,7 @@ export default async function BreakfastPage({
         tripId={id}
         category="BREAKFAST"
         initialReceipts={receipts.map(toReceiptItem)}
+        autoSettlement={trip.autoSettlement}
       />
     </main>
   );

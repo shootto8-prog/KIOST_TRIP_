@@ -8,6 +8,8 @@ import { renderAllPdfPagesToPng } from "@/lib/pdfToImage";
 import { isHeic, heicToJpeg, toThumbnailJpeg } from "@/lib/imageConvert";
 import { sumAcceptedLodgingInTrip } from "@/lib/lodgingBudget";
 import { assertTripOwner } from "@/lib/ownerGuard";
+import { fetchPrivateBlob, PrivateBlobFetchError } from "@/lib/blobFetch";
+import { toReceiptItem } from "@/lib/receipt";
 
 const CATEGORIES = ["BREAKFAST", "TRANSPORT", "LODGING", "FIELD"] as const;
 const TRANSPORT_MODES = ["SHIP", "AIR", "RAIL", "PRIVATE_CAR", "BUS"] as const;
@@ -109,7 +111,7 @@ export async function POST(req: NextRequest) {
     try {
       const thumbBuffer = await toThumbnailJpeg(buffer);
       const thumbBlob = await put(`uploads/${tripId}/${categoryDir}/${baseName}-thumb.jpg`, thumbBuffer, {
-        access: "public",
+        access: "private",
         contentType: "image/jpeg",
       });
       generatedUrls.push(thumbBlob.url);
@@ -131,12 +133,10 @@ export async function POST(req: NextRequest) {
     }
     let originalBuffer: Buffer;
     try {
-      const res = await fetch(b.url, { signal: AbortSignal.timeout(BLOB_FETCH_TIMEOUT_MS) });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      originalBuffer = Buffer.from(await res.arrayBuffer());
+      originalBuffer = await fetchPrivateBlob(b.url, BLOB_FETCH_TIMEOUT_MS);
     } catch (err) {
       console.error("Failed to fetch uploaded blob:", err);
-      const timedOut = err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError");
+      const timedOut = err instanceof PrivateBlobFetchError && err.timedOut;
       return failWith(
         timedOut
           ? "업로드된 사진을 불러오는 데 시간이 너무 오래 걸렸습니다. 잠시 후 다시 시도해 주세요."
@@ -173,7 +173,7 @@ export async function POST(req: NextRequest) {
         for (const [pageIdx, pageBuffer] of pages.entries()) {
           const pageName = `${docId}-p${pageIdx + 1}`;
           const pngBlob = await put(`uploads/${tripId}/${categoryDir}/${pageName}.png`, pageBuffer, {
-            access: "public",
+            access: "private",
             contentType: "image/png",
           });
           generatedUrls.push(pngBlob.url);
@@ -201,7 +201,7 @@ export async function POST(req: NextRequest) {
       const imgName = randomUUID();
       try {
         const jpegBlob = await put(`uploads/${tripId}/${categoryDir}/${imgName}.jpg`, jpegBuffer, {
-          access: "public",
+          access: "private",
           contentType: "image/jpeg",
         });
         generatedUrls.push(jpegBlob.url);
@@ -228,8 +228,9 @@ export async function POST(req: NextRequest) {
 
   // 숙박 상한은 영수증 1건이 아니라 출장 단위로 누적 적용한다 - 같은 출장의 다른 숙박
   // 영수증들이 이미 인정받은 금액을 먼저 구해, 남은 한도까지만 이번 영수증을 인정하게 한다.
+  // 자동정산을 안 쓰는 출장은 애초에 판정을 안 하니 이 조회 자체가 불필요하다.
   const lodgingAlreadyAcceptedInTrip =
-    category === "LODGING" ? await sumAcceptedLodgingInTrip(tripId) : 0;
+    category === "LODGING" && trip.autoSettlement ? await sumAcceptedLodgingInTrip(tripId) : 0;
 
   let analysis: Awaited<ReturnType<typeof analyzeReceipt>>;
   try {
@@ -243,6 +244,7 @@ export async function POST(req: NextRequest) {
       tripLocationsNonDeparture: nonDepartureLocations,
       nights: tripNights(trip),
       lodgingAlreadyAcceptedInTrip,
+      autoSettlement: trip.autoSettlement,
     });
   } catch (err) {
     console.error("Receipt analysis failed:", err);
@@ -276,7 +278,9 @@ export async function POST(req: NextRequest) {
   // 변환이 끝나 DB에 안전하게 저장된 뒤에만 원본(PDF/HEIC)을 지운다.
   await cleanupBlobs(supersededUrls);
 
-  return NextResponse.json({ receipt });
+  // 원본 Blob URL(path/thumbPath)은 클라이언트로 보내지 않는다 - 화면은 항상
+  // /api/receipts/image/{id} 프록시로만 사진을 받는다.
+  return NextResponse.json({ receipt: toReceiptItem(receipt) });
 }
 
 /** 영수증 삭제 - DB 레코드와 함께 Vercel Blob에 올라간 사진 파일도 실제로 지운다. */
@@ -332,5 +336,5 @@ export async function GET(req: NextRequest) {
     orderBy: { createdAt: "desc" },
     include: { images: { orderBy: { order: "asc" } } },
   });
-  return NextResponse.json({ receipts });
+  return NextResponse.json({ receipts: receipts.map(toReceiptItem) });
 }

@@ -1,11 +1,13 @@
 import { runReceiptOcr, type ReceiptImage } from "./receiptOcr";
 import { extractReceiptHints } from "./receiptHints";
 import { parseKstDatetime } from "./kst";
+import { maskSensitiveReceiptText } from "./maskSensitiveText";
 import {
   verifyBreakfast,
   verifyTransport,
   verifyLodging,
   verifyFieldPhoto,
+  verifySubmitted,
   isFlatRateTransportMode,
   type VerificationResult,
 } from "./verifyReceipt";
@@ -26,6 +28,8 @@ export type AnalyzeReceiptInput = {
    * 호출부(POST /api/receipts, reanalyze)가 DB에서 집계해 넘긴다.
    */
   lodgingAlreadyAcceptedInTrip?: number;
+  /** 출장 단위 설정. false면 OCR을 아예 돌리지 않고 "제출"로만 기록한다(카테고리와 무관). */
+  autoSettlement: boolean;
 };
 
 export type AnalyzeReceiptOutput = {
@@ -73,7 +77,10 @@ async function runOcrOnImages(images: ReceiptImage[]): Promise<SingleOcrResult> 
       const structuredAmount = result.structured?.amount ?? null;
       return {
         ocrStatus: "DONE",
-        ocrText: result.text,
+        // 금액/일시/상호명 추출은 원문(result.text)으로 이미 끝났다 - 저장·화면표시용
+        // ocrText만 마스킹해, 카드번호·승인번호가 DB에 평문으로 남거나 "원문 텍스트 보기"에
+        // 그대로 노출되지 않게 한다. (2026-08-07)
+        ocrText: maskSensitiveReceiptText(result.text),
         ocrAmountGuess: structuredAmount ?? hints.amountGuess,
         // LLM이 금액을 못 뽑아서 정규식 폴백(가장 큰 숫자)에 기댄 경우에만 "추정값"이다.
         ocrAmountIsEstimate: structuredAmount === null && hints.amountIsEstimate,
@@ -159,6 +166,12 @@ export function tripNights(trip: { startDate: Date; endDate: Date }): number {
  * 바로 인정 처리하고 OCR 자체를 건너뛴다.
  */
 export async function analyzeReceipt(input: AnalyzeReceiptInput): Promise<AnalyzeReceiptOutput> {
+  // 자동정산을 쓰지 않는 출장은 카테고리와 무관하게 OCR 자체를 건너뛰고 "제출"로만 기록한다 -
+  // 인정/불인정 표현을 쓰면 자동으로 걸러진 것으로 오해할 수 있어서다. (2026-08-07)
+  if (!input.autoSettlement) {
+    return { ...NO_OCR_RESULT, verdict: verifySubmitted() };
+  }
+
   if (input.category === "FIELD") {
     return { ...NO_OCR_RESULT, verdict: verifyFieldPhoto() };
   }

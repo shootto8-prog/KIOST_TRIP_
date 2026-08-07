@@ -33,6 +33,7 @@ export default async function LodgingPage({
         tripId={id}
         category="LODGING"
         initialReceipts={receipts.map(toReceiptItem)}
+        autoSettlement={trip.autoSettlement}
       />
     </main>
   );

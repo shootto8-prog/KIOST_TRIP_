@@ -33,6 +33,7 @@ export default async function FieldPhotoPage({
         tripId={id}
         category="FIELD"
         initialReceipts={receipts.map(toReceiptItem)}
+        autoSettlement={trip.autoSettlement}
       />
     </main>
   );

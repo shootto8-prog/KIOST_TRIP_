@@ -54,6 +54,12 @@ export async function POST(request: Request): Promise<NextResponse> {
           ],
           addRandomSuffix: true,
           maximumSizeInBytes: 30 * 1024 * 1024, // 30MB
+          // 영수증 사진엔 카드번호 일부·승인번호·이름이 찍혀있다 - "public"이면 URL만 알면
+          // 로그인 없이 누구나 영구히 열람할 수 있어, 비공개 전용 Blob 스토어(2026-08-07 신규
+          // 생성)에 올리고 소유자 인증을 거친 프록시(/api/receipts/image/[id])로만 보여준다.
+          // 예전 스토어는 "public" 모드로 만들어져 있어 private 업로드 자체가 불가능했다
+          // (실측 확인) - 그래서 스토어를 아예 새로 만들었다.
+          access: "private",
         };
       },
     });

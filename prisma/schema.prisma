@@ -45,6 +45,8 @@ enum VerdictStatus {
   APPROVED
   PARTIAL
   REJECTED
+  /** 자동정산을 사용하지 않는 출장의 영수증 - OCR/판정 없이 증빙 제출 사실만 기록한다. */
+  SUBMITTED
 }
 
 enum TripStatus {
@@ -56,6 +58,10 @@ model Trip {
   id         String     @id @default(cuid())
   ownerEmail String?
   status     TripStatus @default(ACTIVE)
+  /** false면 OCR/자동판정을 쓰지 않고 사진을 증빙으로만 제출받는다(담당자가 직접 검토). 출장
+   * 등록 시 한 번 정해지며, 등록 후에는 바꿀 수 없다(이미 올라간 영수증의 판정 방식과 어긋나지
+   * 않도록). */
+  autoSettlement Boolean @default(true)
   startDate  DateTime
   endDate    DateTime
   createdAt  DateTime   @default(now())

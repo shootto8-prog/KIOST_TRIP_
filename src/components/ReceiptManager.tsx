@@ -40,6 +40,8 @@ const VERDICT_BADGE_CLASS: Record<ReceiptItem["verdictStatus"], string> = {
   PARTIAL: "bg-amber-500/90 text-white",
   REJECTED: "bg-red-500/90 text-white",
   PENDING: "bg-neutral-400/90 text-white",
+  // 인정/불인정과 헷갈리지 않도록 판정 색(초록/빨강/주황)과 다른 중립적인 파란색을 쓴다.
+  SUBMITTED: "bg-blue-500/90 text-white",
 };
 
 /**
@@ -110,6 +112,8 @@ function VerdictBanner({
           ? "bg-amber-500/10"
           : receipt.verdictStatus === "REJECTED"
           ? "bg-red-500/10"
+          : receipt.verdictStatus === "SUBMITTED"
+          ? "bg-blue-500/10"
           : "bg-neutral-500/10"
       }`}
     >
@@ -156,7 +160,7 @@ function ImageGallery({ receipt }: { receipt: ReceiptItem }) {
         // eslint-disable-next-line @next/next/no-img-element
         <img
           key={img.id}
-          src={img.thumbPath ?? img.path}
+          src={`/api/receipts/image/${img.id}`}
           alt="첨부 사진"
           loading="lazy"
           className="h-20 w-20 shrink-0 rounded-xl object-cover"
@@ -246,11 +250,14 @@ export default function ReceiptManager({
   category,
   transportMode,
   initialReceipts,
+  autoSettlement,
 }: {
   tripId: string;
   category: Category;
   transportMode?: TransportMode;
   initialReceipts: ReceiptItem[];
+  /** false면 이 출장은 OCR/자동판정을 쓰지 않는다 - 안내 문구를 판정 대신 "제출" 기준으로 바꾼다. */
+  autoSettlement: boolean;
 }) {
   const router = useRouter();
   const [receipts, setReceipts] = useState<ReceiptItem[]>(initialReceipts);
@@ -317,8 +324,12 @@ export default function ReceiptManager({
           setUploading(false);
           return;
         }
+        // 영수증 사진엔 카드번호 일부·승인번호·이름이 찍혀있다 - "public"이면 URL만 알면
+        // 로그인 없이 누구나 영구히 열람할 수 있어 "private"로 올린다(서버의
+        // /api/receipts/upload도 private을 강제하지만, 실제 저장 여부는 이 클라이언트 호출의
+        // access 값이 결정한다 - 둘 중 하나만 바꾸면 안 된다). (2026-08-07)
         const blob = await upload(`uploads/${tripId}/${category.toLowerCase()}/${q.file.name}`, q.file, {
-          access: "public",
+          access: "private",
           handleUploadUrl: "/api/receipts/upload",
           contentType,
         });
@@ -403,18 +414,21 @@ export default function ReceiptManager({
 
   const selectedReceipt = receipts.find((r) => r.id === selectedId) ?? null;
 
-  const hint =
-    category === "FIELD"
-      ? "판정 대상이 아닌 증빙용 사진입니다. 첨부하면 바로 인정 처리됩니다."
-      : flatRate
-      ? "정액정산 대상으로 금액 확인 없이 사진만 첨부하면 바로 인정됩니다."
-      : category === "TRANSPORT"
-      ? "왕복 등 결제가 여러 건이면 사진을 각각 추가해 주세요 - 사진별로 인식한 금액을 자동으로 합산합니다."
-      : isBreakfast
-      ? null
-      : category === "LODGING"
-      ? "여러 장이면 같은 영수증의 다음 페이지로 보고 합쳐서 인식합니다. 서로 다른 숙소·숙박 건은 한 번에 올리지 말고 건별로 따로 등록해 주세요."
-      : "여러 장이면 같은 영수증의 다음 페이지로 보고 합쳐서 인식합니다.";
+  const hint = !autoSettlement
+    ? category === "FIELD"
+      ? "증빙용 사진입니다. 첨부하면 제출 처리됩니다."
+      : "이 출장은 자동정산을 사용하지 않습니다. 사진을 올리면 AI 판정 없이 증빙으로 제출만 됩니다 - 담당자가 직접 확인합니다."
+    : category === "FIELD"
+    ? "판정 대상이 아닌 증빙용 사진입니다. 첨부하면 바로 인정 처리됩니다."
+    : flatRate
+    ? "정액정산 대상으로 금액 확인 없이 사진만 첨부하면 바로 인정됩니다."
+    : category === "TRANSPORT"
+    ? "왕복 등 결제가 여러 건이면 사진을 각각 추가해 주세요 - 사진별로 인식한 금액을 자동으로 합산합니다."
+    : isBreakfast
+    ? null
+    : category === "LODGING"
+    ? "여러 장이면 같은 영수증의 다음 페이지로 보고 합쳐서 인식합니다. 서로 다른 숙소·숙박 건은 한 번에 올리지 말고 건별로 따로 등록해 주세요."
+    : "여러 장이면 같은 영수증의 다음 페이지로 보고 합쳐서 인식합니다.";
 
   return (
     <div className="space-y-4">
@@ -528,7 +542,8 @@ export default function ReceiptManager({
       {receipts.length > 0 && (
         <div>
           <h3 className="px-1 text-[13px] font-medium uppercase tracking-wide text-neutral-400">
-            등록된 영수증 ({receipts.length}) · 탭하면 인식 결과를 볼 수 있어요
+            등록된 영수증 ({receipts.length})
+            {autoSettlement ? " · 탭하면 인식 결과를 볼 수 있어요" : " · 탭하면 상세 사진을 볼 수 있어요"}
           </h3>
           <div className="mt-2 grid grid-cols-3 gap-2">
             {receipts.map((r) => (
@@ -545,7 +560,7 @@ export default function ReceiptManager({
                 {r.images[0] ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
-                    src={r.images[0].thumbPath ?? r.images[0].path}
+                    src={`/api/receipts/image/${r.images[0].id}`}
                     alt="등록된 영수증"
                     loading="lazy"
                     className="h-full w-full object-cover"

@@ -42,15 +42,19 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   }
 
   const { trip, byCategory, sumByCategory, totalAmount } = summary;
-  const subject = `[정총무]정산내역서 (${formatDate(trip.startDate)} ~ ${formatDate(trip.endDate)})`;
+  const subject = `[정총무]국내여비 증빙서류 내역서 (${formatDate(trip.startDate)} ~ ${formatDate(trip.endDate)})`;
   const bodyLines = [
-    "출장 실비정산 내역을 첨부드립니다.",
+    trip.autoSettlement
+      ? "출장 실비정산 내역을 첨부드립니다."
+      : "자동정산을 사용하지 않은 출장입니다. 제출된 증빙 서류를 첨부드리니 확인 후 정산 금액을 확정해 주세요.",
     "",
-    ...SETTLED_CATEGORIES.map(
-      (c) => `${CATEGORY_LABEL[c]}   ${byCategory[c].length}건   ${sumByCategory[c].toLocaleString("ko-KR")}원`
+    ...SETTLED_CATEGORIES.map((c) =>
+      trip.autoSettlement
+        ? `${CATEGORY_LABEL[c]}   ${byCategory[c].length}건   ${sumByCategory[c].toLocaleString("ko-KR")}원`
+        : `${CATEGORY_LABEL[c]}   ${byCategory[c].length}건 제출`
     ),
     `현장사진   ${byCategory.FIELD.length}건`,
-    `합계   ${totalAmount.toLocaleString("ko-KR")}원`,
+    ...(trip.autoSettlement ? [`합계   ${totalAmount.toLocaleString("ko-KR")}원`] : []),
   ];
 
   // public/settlement-notice.png 파일을 교체하는 것만으로 넣고 뺄 수 있는 안내/홍보 이미지 - PDF 하단과 동일.

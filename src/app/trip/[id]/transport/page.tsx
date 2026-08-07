@@ -31,6 +31,7 @@ export default async function TransportPage({
       />
       <TransportTabs
         tripId={id}
+        autoSettlement={trip.autoSettlement}
         receiptsByMode={{
           SHIP: receipts.filter((r) => r.transportMode === "SHIP").map(toReceiptItem),
           AIR: receipts.filter((r) => r.transportMode === "AIR").map(toReceiptItem),

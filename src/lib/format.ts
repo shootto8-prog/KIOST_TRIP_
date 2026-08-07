@@ -34,6 +34,7 @@ export const VERDICT_LABEL: Record<string, string> = {
   APPROVED: "인정",
   PARTIAL: "부분인정",
   REJECTED: "불인정",
+  SUBMITTED: "제출",
 };
 
 export const STOP_TYPE_LABEL: Record<string, string> = {

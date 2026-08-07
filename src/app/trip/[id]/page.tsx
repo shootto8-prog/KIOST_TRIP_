@@ -15,13 +15,11 @@ export default async function TripHubPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const trip = await prisma.trip.findUnique({
-    where: { id },
-    include: { stops: { orderBy: { order: "asc" } } },
-  });
-  if (!trip) notFound();
-
-  const [breakfast, transport, lodging, field] = await Promise.all([
+  const [trip, breakfast, transport, lodging, field] = await Promise.all([
+    prisma.trip.findUnique({
+      where: { id },
+      include: { stops: { orderBy: { order: "asc" } } },
+    }),
     prisma.receipt.aggregate({
       where: { tripId: id, category: "BREAKFAST" },
       _count: { _all: true },
@@ -43,6 +41,7 @@ export default async function TripHubPage({
       _sum: { verdictAmount: true },
     }),
   ]);
+  if (!trip) notFound();
   const totalAmount =
     (breakfast._sum.verdictAmount ?? 0) +
     (transport._sum.verdictAmount ?? 0) +
@@ -54,9 +53,9 @@ export default async function TripHubPage({
       <div className="flex items-center justify-between">
         <Link
           href="/"
-          className="inline-flex items-center gap-1 text-[14px] font-medium text-blue-600 dark:text-blue-400"
+          className="inline-flex items-center gap-1 text-[14px] font-medium text-brand dark:text-brand-light"
         >
-          <IconChevronLeft className="size-4" />
+          <IconChevronLeft className="size-5" />
           출장 목록
         </Link>
         <span
@@ -83,28 +82,47 @@ export default async function TripHubPage({
       />
 
       {isCompleted ? (
-        <section className="rounded-3xl bg-blue-600 p-5 text-white shadow-sm">
-          <p className="text-[13px] font-medium text-blue-100">최종 인정된 실비 합계</p>
-          <p className="mt-1 text-3xl font-bold tracking-tight">
-            {totalAmount.toLocaleString("ko-KR")}원
-          </p>
+        <section className="shadow-glow rounded-[28px] bg-brand p-5 text-white">
+          {trip.autoSettlement ? (
+            <>
+              <p className="text-[13px] font-medium text-blue-100">최종 인정된 실비 합계</p>
+              <p className="mt-1 text-3xl font-bold tracking-tight">
+                {totalAmount.toLocaleString("ko-KR")}원
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="text-[13px] font-medium text-blue-100">자동정산 미사용</p>
+              <p className="mt-1 text-[15px] font-semibold leading-relaxed">
+                제출된 증빙 서류는 담당자가 직접 확인해 정산 금액을 확정합니다.
+              </p>
+            </>
+          )}
           <a
             href={`/api/trips/${id}/pdf`}
             download
-            className="mt-4 inline-flex items-center gap-2 rounded-2xl bg-white/15 px-4 py-2.5 text-[14px] font-semibold text-white backdrop-blur transition hover:bg-white/25"
+            className="mt-4 inline-flex items-center gap-2 rounded-full bg-white/15 px-4 py-2.5 text-[14px] font-semibold text-white backdrop-blur transition hover:bg-white/25"
           >
-            <IconDownload />
-            정산 결과 PDF 다운로드
+            <IconDownload className="size-5" />
+            {trip.autoSettlement ? "정산 결과 PDF 다운로드" : "제출 서류 PDF 다운로드"}
           </a>
           <EmailSendButton tripId={id} enabled={isEmailConfigured()} defaultEmail={trip.ownerEmail ?? undefined} />
         </section>
       ) : (
         (breakfast._count._all > 0 || transport._count._all > 0 || lodging._count._all > 0 || field._count._all > 0) && (
-          <section className="rounded-3xl border border-black/5 bg-white/80 p-5 shadow-sm dark:border-white/10 dark:bg-white/[0.04]">
-            <p className="text-[13px] font-medium text-neutral-400">현재까지 인정된 실비 합계</p>
-            <p className="mt-1 text-2xl font-bold tracking-tight text-neutral-900 dark:text-neutral-100">
-              {totalAmount.toLocaleString("ko-KR")}원
-            </p>
+          <section className="shadow-soft rounded-[28px] border border-black/5 bg-white/80 p-5 dark:border-white/10 dark:bg-white/[0.04]">
+            {trip.autoSettlement ? (
+              <>
+                <p className="text-[13px] font-medium text-neutral-400">현재까지 인정된 실비 합계</p>
+                <p className="mt-1 text-2xl font-bold tracking-tight text-neutral-900 dark:text-neutral-100">
+                  {totalAmount.toLocaleString("ko-KR")}원
+                </p>
+              </>
+            ) : (
+              <p className="text-[13px] font-medium text-neutral-400">
+                이 출장은 자동정산을 사용하지 않습니다 - 제출된 증빙은 담당자가 직접 확인합니다.
+              </p>
+            )}
             <p className="mt-1 text-[12px] text-neutral-400">
               출장이 끝나면 "출장 종료"를 눌러 정산 결과를 PDF/이메일로 받을 수 있어요.
             </p>
@@ -115,35 +133,39 @@ export default async function TripHubPage({
       <section className="grid grid-cols-2 gap-3">
         <CategoryCard
           href={`/trip/${id}/breakfast`}
-          icon={<IconBreakfast className="size-6 text-amber-600 dark:text-amber-400" />}
+          icon={<IconBreakfast className="size-7 text-amber-600 dark:text-amber-400" />}
           label="조식"
           count={breakfast._count._all}
           amount={breakfast._sum.verdictAmount ?? 0}
           accent="bg-amber-500/10"
+          autoSettlement={trip.autoSettlement}
         />
         <CategoryCard
           href={`/trip/${id}/transport`}
-          icon={<IconTransport className="size-6 text-blue-600 dark:text-blue-400" />}
+          icon={<IconTransport className="size-7 text-blue-600 dark:text-blue-400" />}
           label="교통"
           count={transport._count._all}
           amount={transport._sum.verdictAmount ?? 0}
           accent="bg-blue-500/10"
+          autoSettlement={trip.autoSettlement}
         />
         <CategoryCard
           href={`/trip/${id}/lodging`}
-          icon={<IconLodging className="size-6 text-violet-600 dark:text-violet-400" />}
+          icon={<IconLodging className="size-7 text-violet-600 dark:text-violet-400" />}
           label="숙박"
           count={lodging._count._all}
           amount={lodging._sum.verdictAmount ?? 0}
           accent="bg-violet-500/10"
+          autoSettlement={trip.autoSettlement}
         />
         <CategoryCard
           href={`/trip/${id}/field`}
-          icon={<IconPhoto className="size-6 text-rose-600 dark:text-rose-400" />}
+          icon={<IconPhoto className="size-7 text-rose-600 dark:text-rose-400" />}
           label="현장사진"
           count={field._count._all}
           amount={field._sum.verdictAmount ?? 0}
           accent="bg-rose-500/10"
+          autoSettlement={trip.autoSettlement}
         />
       </section>
 
