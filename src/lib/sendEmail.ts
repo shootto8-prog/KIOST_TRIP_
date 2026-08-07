@@ -60,7 +60,7 @@ export async function sendTripSettlementEmail(params: {
         .split("\n")
         .map((line) => (line ? `<p style="margin:0 0 4px;">${escapeHtml(line)}</p>` : "<br/>"))
         .join("") +
-      `<div style="margin-top:16px;"><img src="cid:${NOTICE_IMAGE_CID}" alt="" style="max-width:70%;height:auto;display:block;margin:0 auto;" /></div>`
+      `<div style="margin-top:16px;"><img src="cid:${NOTICE_IMAGE_CID}" alt="" style="max-width:50%;height:auto;display:block;" /></div>`
     : undefined;
 
   const attachments: Mail.Attachment[] = [params.attachment];
