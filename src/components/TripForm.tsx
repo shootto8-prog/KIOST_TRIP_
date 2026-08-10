@@ -4,6 +4,8 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { IconPlus, IconTrash } from "./icons";
 import DateYMDInput from "./DateYMDInput";
+import { createTrip, updateTrip, type PositionGrade } from "@/lib/localDb";
+import { POSITION_GRADE_LABEL } from "@/lib/transportFares";
 
 type Stop = {
   key: string;
@@ -32,7 +34,7 @@ function toStops(initial?: InitialStop[]): Stop[] {
 
 /**
  * 출장 등록(신규)과 출장 정보 변경(연장/단축 등 기존 출장 수정)을 겸한다.
- * tripId가 있으면 수정 모드(PATCH /api/trips/[id]), 없으면 신규 등록(POST /api/trips)이다.
+ * tripId가 있으면 수정 모드(localDb.updateTrip), 없으면 신규 등록(localDb.createTrip)이다.
  *
  * 출장기간(시작일~종료일)은 경로(출발지/경유지/목적지)와 분리된 별도 값이다. 예전에는 각 경로
  * 지점마다 날짜를 따로 받아 "도착일자"가 목적지 도착일인지 최종 복귀일인지 모호했는데(복귀 일정이
@@ -40,7 +42,6 @@ function toStops(initial?: InitialStop[]): Stop[] {
  */
 export default function TripForm({
   tripId,
-  ownerEmail,
   initialStartDate,
   initialEndDate,
   initialStops,
@@ -48,8 +49,6 @@ export default function TripForm({
   onCancel,
 }: {
   tripId?: string;
-  /** 홈 화면의 본인 확인 이메일(identity 쿠키) - 새 출장 등록 시 자동으로 연결된다. */
-  ownerEmail: string;
   initialStartDate?: string; // "YYYY-MM-DD"
   initialEndDate?: string;
   initialStops?: InitialStop[];
@@ -64,8 +63,20 @@ export default function TripForm({
   // 기본값은 비활성화(수동입력) - 무료 OCR 모델의 인식 오류/오탐이 실사용에서 반복 확인돼,
   // 자동정산은 사용자가 명시적으로 켜기로 선택한 경우에만 쓰도록 한다. (2026-08-07)
   const [autoSettlement, setAutoSettlement] = useState(false);
+  // 고속철도(KTX) 요금이 직급별로 달라(TRANS/ktx.xls) 출장 등록 시 받아 고정한다 - autoSettlement와
+  // 마찬가지로 등록 후에는 바꿀 수 없다(이미 조회한 구간 요금과 어긋나지 않도록).
+  const [grade, setGrade] = useState<PositionGrade | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // 출장기간 종료일을 아직 안 만졌으면(비어 있으면) 시작일과 같은 값으로 미리 채워둔다 -
+  // 당일 출장이 흔해서, 시작일만 넣으면 바로 완성되고, 여러 날이면 그냥 종료일을 고쳐 쓰면
+  // 된다(2026-08-10, 사용자 요청). 종료일에 이미 값이 있으면(사용자가 이미 고른 경우) 건드리지
+  // 않는다.
+  function handleStartDateChange(next: string) {
+    setStartDate(next);
+    if (!endDate) setEndDate(next);
+  }
 
   function updateStop(key: string, patch: Partial<Stop>) {
     setStops((prev) => prev.map((s) => (s.key === key ? { ...s, ...patch } : s)));
@@ -104,40 +115,24 @@ export default function TripForm({
       setError("모든 경로 항목에 장소를 입력해 주세요.");
       return;
     }
+    if (!isEdit && !grade) {
+      setError("책임급 / 선임급 이하 중 하나를 선택해 주세요.");
+      return;
+    }
 
     setSubmitting(true);
     try {
-      const url = isEdit ? `/api/trips/${tripId}` : "/api/trips";
-      const method = isEdit ? "PATCH" : "POST";
-      const res = await fetch(url, {
-        method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ownerEmail,
-          startDate,
-          endDate,
-          stops: stops.map(({ type, location }) => ({ type, location })),
-          // 등록(신규) 시에만 의미가 있다 - 등록 후에는 바꿀 수 없어 수정 모드에서는 아예 보내지
-          // 않는다(PATCH 라우트도 이 필드를 다루지 않는다).
-          ...(isEdit ? {} : { autoSettlement }),
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.error ?? "저장에 실패했습니다.");
-        setSubmitting(false);
-        return;
-      }
-      if (isEdit) {
+      const stopsInput = stops.map(({ type, location }, order) => ({ type, location, order }));
+      if (isEdit && tripId) {
+        await updateTrip(tripId, { startDate, endDate, stops: stopsInput });
         setSubmitting(false);
         onSaved?.();
-        router.refresh();
       } else {
-        router.push(`/trip/${data.trip.id}`);
-        router.refresh();
+        const trip = await createTrip({ startDate, endDate, stops: stopsInput, autoSettlement, grade: grade! });
+        router.push(`/trip/${trip.id}`);
       }
     } catch {
-      setError("네트워크 오류가 발생했습니다.");
+      setError("저장에 실패했습니다.");
       setSubmitting(false);
     }
   }
@@ -170,45 +165,64 @@ export default function TripForm({
       <div className="mt-4 rounded-2xl border border-black/5 bg-neutral-50 p-3 dark:border-white/10 dark:bg-white/5">
         <p className="text-[13px] font-medium text-neutral-500">출장기간</p>
         <div className="mt-2 flex flex-nowrap items-center gap-1 overflow-x-auto">
-          <DateYMDInput value={startDate} onChange={setStartDate} />
+          <DateYMDInput value={startDate} onChange={handleStartDateChange} />
           <span className="shrink-0 text-neutral-400">~</span>
           <DateYMDInput value={endDate} onChange={setEndDate} />
         </div>
       </div>
 
       {!isEdit && (
-        <div className="mt-4 rounded-2xl border border-black/5 bg-neutral-50 p-3 dark:border-white/10 dark:bg-white/5">
-          <div className="flex items-center justify-between gap-3">
-            <div className="min-w-0">
+        <div className="mt-4 space-y-3 rounded-2xl border border-black/5 bg-neutral-50 p-3 dark:border-white/10 dark:bg-white/5">
+          <div>
+            <div className="flex items-center justify-between gap-3">
               <p className="text-[14px] font-semibold text-neutral-900 dark:text-neutral-100">
                 자동정산 (AI 판정)
               </p>
-              <p className="mt-0.5 text-[12px] text-neutral-400">
-                {autoSettlement
-                  ? "사진을 올리면 AI가 규정에 따라 인정/불인정을 자동으로 판정합니다."
-                  : "AI 판정 없이 증빙서류만 제출합니다."}
-              </p>
-            </div>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={autoSettlement}
-              aria-label="자동정산 사용 여부"
-              onClick={() => setAutoSettlement((v) => !v)}
-              className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors ${
-                autoSettlement ? "bg-brand" : "bg-neutral-300 dark:bg-white/20"
-              }`}
-            >
-              <span
-                className={`inline-block size-5 transform rounded-full bg-white shadow transition-transform ${
-                  autoSettlement ? "translate-x-6" : "translate-x-1"
+              <button
+                type="button"
+                role="switch"
+                aria-checked={autoSettlement}
+                aria-label="자동정산 사용 여부"
+                onClick={() => setAutoSettlement((v) => !v)}
+                className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors ${
+                  autoSettlement ? "bg-brand" : "bg-neutral-300 dark:bg-white/20"
                 }`}
-              />
-            </button>
+              >
+                <span
+                  className={`inline-block size-5 transform rounded-full bg-white shadow transition-transform ${
+                    autoSettlement ? "translate-x-6" : "translate-x-1"
+                  }`}
+                />
+              </button>
+            </div>
+            <p className="mt-1 text-[12px] text-neutral-400">
+              {autoSettlement
+                ? "외부 LLM을 이용하여 AI가 인정/불인정을 판정합니다. 민감정보가 노출되지 않도록 유의해주세요"
+                : "AI 판정 없이 증빙서류만 제출합니다."}
+            </p>
           </div>
-          <p className="mt-2 text-[11px] text-neutral-400">
-            출장 등록 후에는 바꿀 수 없어요. 신중히 선택해 주세요.
-          </p>
+
+          <div className="flex items-center justify-between gap-3 border-t border-black/5 pt-3 dark:border-white/10">
+            <p className="text-[14px] font-semibold text-neutral-900 dark:text-neutral-100">직급</p>
+            <div className="flex shrink-0 rounded-full bg-neutral-200/70 p-0.5 dark:bg-white/10">
+              {(Object.keys(POSITION_GRADE_LABEL) as PositionGrade[]).map((g) => (
+                <button
+                  key={g}
+                  type="button"
+                  onClick={() => setGrade(g)}
+                  className={`rounded-full px-3 py-1.5 text-[13px] font-medium transition ${
+                    grade === g
+                      ? "bg-white text-brand shadow-sm dark:bg-white/90"
+                      : "text-neutral-500 dark:text-neutral-400"
+                  }`}
+                >
+                  {POSITION_GRADE_LABEL[g]}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <p className="text-[11px] text-neutral-400">출장 등록 후에는 둘 다 바꿀 수 없어요.</p>
         </div>
       )}
 
@@ -224,7 +238,7 @@ export default function TripForm({
             <input
               type="text"
               required
-              placeholder={s.type === "ARRIVAL" ? "장소 (예: 서울)" : "장소 (예: 부산)"}
+              placeholder="장소"
               value={s.location}
               onChange={(e) => updateStop(s.key, { location: e.target.value })}
               className="min-w-0 flex-1 rounded-xl bg-transparent px-2 py-2 text-[15px] text-neutral-900 outline-none placeholder:text-neutral-400 dark:text-neutral-100"
@@ -260,7 +274,7 @@ export default function TripForm({
                 <input
                   type="text"
                   required
-                  placeholder="장소 (예: 부산)"
+                  placeholder="장소"
                   value={s.location}
                   onChange={(e) => updateStop(s.key, { location: e.target.value })}
                   className="min-w-0 flex-1 rounded-xl bg-transparent px-2 py-2 text-[15px] text-neutral-900 outline-none placeholder:text-neutral-400 dark:text-neutral-100"

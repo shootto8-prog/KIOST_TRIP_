@@ -465,6 +465,22 @@ describe("verifyLodging", () => {
     expect(result.acceptedAmount).toBe(115000);
   });
 
+  it("당일(0박) 출장은 영수증 내용과 무관하게 반려된다", () => {
+    const result = verifyLodging({
+      ocrStatus: "DONE",
+      ocrText: busanReceiptText,
+      ocrAmountGuess: 115000,
+      ocrDateGuess: d("2026-07-21T15:20:00"),
+      tripStartDate: TRIP_START,
+      tripEndDate: TRIP_START,
+      tripLocations: ["부산"],
+      nights: 0,
+    });
+    expect(result.status).toBe("REJECTED");
+    expect(result.acceptedAmount).toBeNull();
+    expect(result.message).toBe("당일 출장에서는 숙박비가 발생하지 않습니다.");
+  });
+
   it("결제일이 출장기간 밖(7/25, OTA 사전결제 등): 날짜는 검사하지 않으므로 장소만 맞으면 인정", () => {
     // 숙박은 OTA로 출장 전에 미리 예약·결제하는 게 정상이라(2026-08-05 결정), 결제일이
     // 출장기간 밖이어도 더 이상 trip_date_mismatch로 불인정하지 않는다. 교통(항공/선박)에
@@ -817,6 +833,13 @@ describe("verifyLodgingManual (자동정산 미사용, 수동입력)", () => {
     const result = verifyLodgingManual({ amount: 100000, nights: 1 });
     expect(result.status).toBe("APPROVED");
     expect(result.acceptedAmount).toBe(100000);
+  });
+
+  it("당일(0박) 출장은 금액과 무관하게 반려된다", () => {
+    const result = verifyLodgingManual({ amount: 50000, nights: 0 });
+    expect(result.status).toBe("REJECTED");
+    expect(result.acceptedAmount).toBeNull();
+    expect(result.message).toBe("당일 출장에서는 숙박비가 발생하지 않습니다.");
   });
 
   it("2박, 1박당 상한(12만원) 초과지만 2박 총 상한(24만원) 이내 -> 인정", () => {

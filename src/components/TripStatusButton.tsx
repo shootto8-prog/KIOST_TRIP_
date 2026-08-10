@@ -1,27 +1,24 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { updateTrip } from "@/lib/localDb";
 
 export default function TripStatusButton({
   tripId,
   status,
+  onChanged,
 }: {
   tripId: string;
   status: "ACTIVE" | "COMPLETED";
+  onChanged?: () => void;
 }) {
-  const router = useRouter();
   const [loading, setLoading] = useState(false);
 
   async function changeStatus(next: "ACTIVE" | "COMPLETED") {
     setLoading(true);
     try {
-      await fetch(`/api/trips/${tripId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: next }),
-      });
-      router.refresh();
+      await updateTrip(tripId, { status: next });
+      onChanged?.();
     } finally {
       setLoading(false);
     }

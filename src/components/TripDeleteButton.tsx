@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { IconTrash } from "./icons";
+import { deleteTrip } from "@/lib/localDb";
 
 /**
  * 진행중인 출장은 "취소", 종료된 출장은 "삭제"로 라벨만 다르고 동작은 동일하다(둘 다 완전 삭제,
@@ -13,11 +14,13 @@ export default function TripDeleteButton({
   label,
   className,
   redirectTo,
+  onDeleted,
 }: {
   tripId: string;
   label: "취소" | "삭제";
   className?: string;
   redirectTo?: string; // 지정하면 삭제 후 이 경로로 이동 (예: 허브 화면에서 지울 때 홈으로)
+  onDeleted?: () => void; // redirectTo가 없을 때(목록 화면) 삭제 후 목록을 다시 불러오기 위한 콜백
 }) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
@@ -32,11 +35,11 @@ export default function TripDeleteButton({
 
     setLoading(true);
     try {
-      await fetch(`/api/trips/${tripId}`, { method: "DELETE" });
+      await deleteTrip(tripId);
       if (redirectTo) {
         router.push(redirectTo);
       } else {
-        router.refresh();
+        onDeleted?.();
       }
     } finally {
       setLoading(false);

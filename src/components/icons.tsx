@@ -105,6 +105,14 @@ export function IconPlus({ className = "size-4" }: { className?: string }) {
   );
 }
 
+export function IconMinus({ className = "size-4" }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className} strokeWidth={2} stroke="currentColor">
+      <path d="M5 12h14" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 export function IconTrash({ className = "size-4" }: { className?: string }) {
   return (
     <svg viewBox="0 0 24 24" fill="none" className={className} strokeWidth={1.75} stroke="currentColor">

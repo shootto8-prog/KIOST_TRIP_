@@ -1,23 +1,34 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import ReceiptManager from "./ReceiptManager";
-import type { ReceiptItem } from "@/lib/receipt";
 import { TRANSPORT_MODE_LABEL } from "@/lib/format";
+import { useReceipts } from "@/lib/useLocalReceipts";
+import type { TransportMode, LocalStop, PositionGrade } from "@/lib/localDb";
 
-type TransportMode = "SHIP" | "AIR" | "RAIL" | "PRIVATE_CAR" | "BUS";
 const MODES: TransportMode[] = ["SHIP", "AIR", "RAIL", "PRIVATE_CAR", "BUS"];
 
 export default function TransportTabs({
   tripId,
-  receiptsByMode,
   autoSettlement,
+  grade,
+  tripStartDate,
+  tripEndDate,
+  tripStops,
 }: {
   tripId: string;
-  receiptsByMode: Record<TransportMode, ReceiptItem[]>;
   autoSettlement: boolean;
+  grade: PositionGrade;
+  tripStartDate: string;
+  tripEndDate: string;
+  tripStops: LocalStop[];
 }) {
   const [mode, setMode] = useState<TransportMode>("SHIP");
+  // TRANSPORT 전체를 한 번만 읽어와서 탭별로는 클라이언트에서 필터링한다 - 예전엔 서버가
+  // 미리 5개 배열로 나눠 내려줬지만, 이제 이 컴포넌트가 직접 데이터를 갖고 있으니 프롭 드릴링을
+  // 한 단계 줄일 수 있다.
+  const { receipts, refresh } = useReceipts(tripId, "TRANSPORT");
+  const receiptsForMode = useMemo(() => receipts.filter((r) => r.transportMode === mode), [receipts, mode]);
 
   return (
     <div className="space-y-4">
@@ -41,8 +52,13 @@ export default function TransportTabs({
         tripId={tripId}
         category="TRANSPORT"
         transportMode={mode}
-        initialReceipts={receiptsByMode[mode]}
+        initialReceipts={receiptsForMode}
         autoSettlement={autoSettlement}
+        grade={grade}
+        tripStartDate={tripStartDate}
+        tripEndDate={tripEndDate}
+        tripStops={tripStops}
+        onChange={refresh}
       />
     </div>
   );

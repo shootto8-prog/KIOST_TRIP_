@@ -160,6 +160,9 @@ async function runOcrSummed(photos: ReceiptImage[][]): Promise<MultiOcrResult> {
 
 /**
  * 출장기간(출발~복귀)으로 "박수"를 자동 계산한다 - 8/1 출발, 8/4 복귀면 3박. 사용자 입력 불필요.
+ * 출장 시작일=종료일(당일 출장)이면 0을 그대로 반환한다 - 예전에는 여기서 최소 1로 내림해,
+ * 당일 출장에도 숙박비가 1박 상한까지 조용히 인정되는 버그가 있었다(2026-08-10 수정,
+ * verifyLodging/verifyLodgingManual이 0박이면 명시적으로 반려한다).
  * 출장 시작/종료일은 "YYYY-MM-DD" 형태로 입력받아 항상 UTC 자정으로 저장되므로(ECMAScript
  * 스펙상 날짜만 있는 문자열은 항상 UTC로 해석됨), 실행 환경 타임존과 무관하게 UTC 기준
  * getter로 읽어야 서버(UTC)/로컬(KST) 어디서 실행하든 같은 날짜가 나온다.
@@ -170,7 +173,7 @@ export function tripNights(trip: { startDate: Date; endDate: Date }): number {
   const startDay = Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate());
   const endDay = Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), end.getUTCDate());
   const diffDays = Math.round((endDay - startDay) / 86400000);
-  return Math.max(1, diffDays);
+  return Math.max(0, diffDays);
 }
 
 /**

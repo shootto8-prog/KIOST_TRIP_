@@ -1,5 +1,3 @@
-import type { Receipt, ReceiptImage } from "@prisma/client";
-
 export type ReceiptItem = {
   id: string;
   category: "BREAKFAST" | "TRANSPORT" | "LODGING" | "FIELD";
@@ -22,27 +20,3 @@ export type ReceiptItem = {
   verdictFailedCheck: string | null;
   verdictRegulationRef: string | null;
 };
-
-export function toReceiptItem(r: Receipt & { images: ReceiptImage[] }): ReceiptItem {
-  return {
-    id: r.id,
-    category: r.category,
-    images: r.images
-      .slice()
-      .sort((a, b) => a.order - b.order)
-      .map((img) => ({ id: img.id, order: img.order })),
-    createdAt: r.createdAt.toISOString(),
-    transportMode: r.transportMode,
-    ocrStatus: r.ocrStatus,
-    ocrText: r.ocrText,
-    ocrAmountGuess: r.ocrAmountGuess,
-    ocrDateGuess: r.ocrDateGuess ? r.ocrDateGuess.toISOString() : null,
-    ocrMerchantGuess: r.ocrMerchantGuess,
-    ocrModel: r.ocrModel,
-    verdictStatus: r.verdictStatus,
-    verdictAmount: r.verdictAmount,
-    verdictMessage: r.verdictMessage,
-    verdictFailedCheck: r.verdictFailedCheck,
-    verdictRegulationRef: r.verdictRegulationRef,
-  };
-}

@@ -439,6 +439,8 @@ export type LodgingInput = {
 
 export const TRIP_CAP_EXHAUSTED_CHECK_ID = "trip_cap_exhausted";
 export const MULTIPLE_DOCUMENTS_CHECK_ID = "multiple_documents";
+export const SAME_DAY_LODGING_CHECK_ID = "same_day_lodging";
+const SAME_DAY_LODGING_MESSAGE = "당일 출장에서는 숙박비가 발생하지 않습니다.";
 
 /**
  * 숙박 금액 상한 판정(OCR 모드/수동입력 모드 공용) - 2박/3박이면 1박당 상한 × 박수로 늘어나고,
@@ -486,7 +488,13 @@ function applyLodgingAmountCap(
 export function verifyLodging(input: LodgingInput): VerificationResult {
   const r = rules.lodging;
   const regulationRef = r.regulation_ref;
-  const nights = input.nights > 0 ? input.nights : 1;
+
+  // 당일(0박) 출장은 애초에 숙박비가 발생할 수 없다 - OCR/영수증 내용과 무관하게 가장 먼저
+  // 걸러낸다(2026-08-10, 1일 출장 숙박비가 잘못 인정되던 버그 수정. 예전엔 tripNights()가
+  // 박수를 항상 1 이상으로 내림해, 0박이어도 1박 상한을 적용해 조용히 인정되고 있었다).
+  if (input.nights <= 0) {
+    return rejected(SAME_DAY_LODGING_MESSAGE, SAME_DAY_LODGING_CHECK_ID, regulationRef);
+  }
 
   if (input.ocrStatus !== "DONE" || !input.ocrText) {
     return rejected(OCR_UNAVAILABLE_MESSAGE, "ocr_unavailable", regulationRef);
@@ -530,7 +538,7 @@ export function verifyLodging(input: LodgingInput): VerificationResult {
   }
 
   // 순서5: 금액 상한 (부분인정)
-  return applyLodgingAmountCap(input.ocrAmountGuess, nights, input.alreadyAcceptedInTrip, regulationRef);
+  return applyLodgingAmountCap(input.ocrAmountGuess, input.nights, input.alreadyAcceptedInTrip, regulationRef);
 }
 
 /**
@@ -610,6 +618,8 @@ export type ManualLodgingInput = {
  */
 export function verifyLodgingManual(input: ManualLodgingInput): VerificationResult {
   const regulationRef = rules.lodging.regulation_ref;
-  const nights = input.nights > 0 ? input.nights : 1;
-  return applyLodgingAmountCap(input.amount, nights, input.alreadyAcceptedInTrip, regulationRef);
+  if (input.nights <= 0) {
+    return rejected(SAME_DAY_LODGING_MESSAGE, SAME_DAY_LODGING_CHECK_ID, regulationRef);
+  }
+  return applyLodgingAmountCap(input.amount, input.nights, input.alreadyAcceptedInTrip, regulationRef);
 }

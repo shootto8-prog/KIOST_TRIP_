@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { IconCalendar } from "./icons";
 import { isValidYmdParts } from "@/lib/ymdDate";
 
@@ -39,17 +39,27 @@ export default function DateYMDInput({
 }) {
   const [parts, setParts] = useState(() => parse(value));
   const pickerRef = useRef<HTMLInputElement>(null);
+  // 우리가 마지막으로 emit한 값을 기억해둔다 - value prop이 바뀌었을 때, 그게 우리 자신의
+  // onChange가 왕복해 돌아온 것인지(그럼 화면을 건드리면 안 됨 - 타이핑 중 지워짐) 아니면
+  // 부모가 직접 바꾼 것인지(예: 출장기간 시작일을 넣으면 종료일도 자동으로 채우는 기능,
+  // 2026-08-10) 구분하는 용도.
+  const lastEmitted = useRef(value);
+
+  useEffect(() => {
+    if (value !== lastEmitted.current) {
+      setParts(parse(value));
+      lastEmitted.current = value;
+    }
+  }, [value]);
 
   function set(part: "y" | "m" | "d", raw: string, maxLen: number) {
     const digits = raw.replace(/\D/g, "").slice(0, maxLen);
     const next = { ...parts, [part]: digits };
     setParts(next);
     // 달력에 없는 날짜(13월, 2월 30일 등)는 값을 비워 상위 폼이 제출을 막게 한다.
-    if (isValid(next)) {
-      onChange(`${next.y}-${next.m.padStart(2, "0")}-${next.d.padStart(2, "0")}`);
-    } else {
-      onChange("");
-    }
+    const emitted = isValid(next) ? `${next.y}-${next.m.padStart(2, "0")}-${next.d.padStart(2, "0")}` : "";
+    lastEmitted.current = emitted;
+    onChange(emitted);
   }
 
   function openPicker() {
@@ -70,7 +80,9 @@ export default function DateYMDInput({
     const parsed = parse(raw);
     setParts(parsed);
     if (parsed.y && parsed.m && parsed.d) {
-      onChange(`${parsed.y}-${parsed.m}-${parsed.d}`);
+      const emitted = `${parsed.y}-${parsed.m}-${parsed.d}`;
+      lastEmitted.current = emitted;
+      onChange(emitted);
     }
   }
 
@@ -90,7 +102,6 @@ export default function DateYMDInput({
           onChange={(e) => set("y", e.target.value, 4)}
           className={`w-12 shrink-0 ${inputClass}`}
         />
-        <span className="shrink-0 text-[13px] text-neutral-400">년</span>
         <input
           type="text"
           inputMode="numeric"
@@ -99,7 +110,6 @@ export default function DateYMDInput({
           onChange={(e) => set("m", e.target.value, 2)}
           className={`w-8 shrink-0 ${inputClass}`}
         />
-        <span className="shrink-0 text-[13px] text-neutral-400">월</span>
         <input
           type="text"
           inputMode="numeric"
@@ -108,7 +118,6 @@ export default function DateYMDInput({
           onChange={(e) => set("d", e.target.value, 2)}
           className={`w-8 shrink-0 ${inputClass}`}
         />
-        <span className="shrink-0 text-[13px] text-neutral-400">일</span>
 
         <button
           type="button"

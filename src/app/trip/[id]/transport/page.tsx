@@ -1,44 +1,31 @@
-import { notFound } from "next/navigation";
-import { prisma } from "@/lib/prisma";
-import { toReceiptItem } from "@/lib/receipt";
+"use client";
+
+import { useParams } from "next/navigation";
 import CategoryPageHeader from "@/components/CategoryPageHeader";
 import TransportTabs from "@/components/TransportTabs";
+import LocalDataBoundary from "@/components/LocalDataBoundary";
 import { IconTransport } from "@/components/icons";
+import { useTrip } from "@/lib/useLocalTrip";
 
-export default async function TransportPage({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}) {
-  const { id } = await params;
-  const [trip, receipts] = await Promise.all([
-    prisma.trip.findUnique({ where: { id } }),
-    prisma.receipt.findMany({
-      where: { tripId: id, category: "TRANSPORT" },
-      orderBy: { createdAt: "desc" },
-      include: { images: { orderBy: { order: "asc" } } },
-    }),
-  ]);
-  if (!trip) notFound();
+export default function TransportPage() {
+  const { id } = useParams<{ id: string }>();
+  const { status: tripStatus, trip } = useTrip(id);
 
   return (
-    <main className="space-y-6">
-      <CategoryPageHeader
-        tripId={id}
-        icon={<IconTransport className="size-12" />}
-        title="교통"
-      />
-      <TransportTabs
-        tripId={id}
-        autoSettlement={trip.autoSettlement}
-        receiptsByMode={{
-          SHIP: receipts.filter((r) => r.transportMode === "SHIP").map(toReceiptItem),
-          AIR: receipts.filter((r) => r.transportMode === "AIR").map(toReceiptItem),
-          RAIL: receipts.filter((r) => r.transportMode === "RAIL").map(toReceiptItem),
-          PRIVATE_CAR: receipts.filter((r) => r.transportMode === "PRIVATE_CAR").map(toReceiptItem),
-          BUS: receipts.filter((r) => r.transportMode === "BUS").map(toReceiptItem),
-        }}
-      />
-    </main>
+    <LocalDataBoundary loading={tripStatus === "loading"} notFound={tripStatus === "not-found"}>
+      {trip && (
+        <main className="space-y-6">
+          <CategoryPageHeader tripId={id} icon={<IconTransport className="size-12" />} title="교통" />
+          <TransportTabs
+            tripId={id}
+            autoSettlement={trip.autoSettlement}
+            grade={trip.grade}
+            tripStartDate={trip.startDate}
+            tripEndDate={trip.endDate}
+            tripStops={trip.stops}
+          />
+        </main>
+      )}
+    </LocalDataBoundary>
   );
 }

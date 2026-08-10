@@ -8,7 +8,7 @@ import { IconPlus } from "./icons";
  * 출장정보 등록 폼은 세로로 길어 홈 화면에 항상 펼쳐두면 스크롤 없이 한 화면에 들어오기
  * 어렵다 - 기본은 접어두고, 버튼을 눌렀을 때만 펼친다.
  */
-export default function NewTripSection({ ownerEmail }: { ownerEmail: string }) {
+export default function NewTripSection() {
   const [open, setOpen] = useState(false);
 
   if (!open) {
@@ -24,16 +24,5 @@ export default function NewTripSection({ ownerEmail }: { ownerEmail: string }) {
     );
   }
 
-  return (
-    <div>
-      <button
-        type="button"
-        onClick={() => setOpen(false)}
-        className="mb-2 text-[13px] font-medium text-neutral-400"
-      >
-        접기
-      </button>
-      <TripForm ownerEmail={ownerEmail} />
-    </div>
-  );
+  return <TripForm />;
 }

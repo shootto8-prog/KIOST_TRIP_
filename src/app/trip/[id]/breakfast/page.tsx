@@ -1,39 +1,40 @@
-import { notFound } from "next/navigation";
-import { prisma } from "@/lib/prisma";
-import { toReceiptItem } from "@/lib/receipt";
+"use client";
+
+import { useParams } from "next/navigation";
 import CategoryPageHeader from "@/components/CategoryPageHeader";
 import ReceiptManager from "@/components/ReceiptManager";
+import MealDeductionStepper from "@/components/MealDeductionStepper";
+import LocalDataBoundary from "@/components/LocalDataBoundary";
 import { IconBreakfast } from "@/components/icons";
+import { useTrip } from "@/lib/useLocalTrip";
+import { useReceipts } from "@/lib/useLocalReceipts";
 
-export default async function BreakfastPage({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}) {
-  const { id } = await params;
-  const [trip, receipts] = await Promise.all([
-    prisma.trip.findUnique({ where: { id } }),
-    prisma.receipt.findMany({
-      where: { tripId: id, category: "BREAKFAST" },
-      orderBy: { createdAt: "desc" },
-      include: { images: { orderBy: { order: "asc" } } },
-    }),
-  ]);
-  if (!trip) notFound();
+export default function BreakfastPage() {
+  const { id } = useParams<{ id: string }>();
+  const { status: tripStatus, trip, refresh: refreshTrip } = useTrip(id);
+  const { status: receiptsStatus, receipts, refresh } = useReceipts(id, "BREAKFAST");
 
   return (
-    <main className="space-y-6">
-      <CategoryPageHeader
-        tripId={id}
-        icon={<IconBreakfast className="size-12" />}
-        title="조식"
-      />
-      <ReceiptManager
-        tripId={id}
-        category="BREAKFAST"
-        initialReceipts={receipts.map(toReceiptItem)}
-        autoSettlement={trip.autoSettlement}
-      />
-    </main>
+    <LocalDataBoundary
+      loading={tripStatus === "loading" || receiptsStatus === "loading"}
+      notFound={tripStatus === "not-found"}
+    >
+      {trip && (
+        <main className="space-y-6">
+          <CategoryPageHeader tripId={id} icon={<IconBreakfast className="size-12" />} title="조식" />
+          <MealDeductionStepper tripId={id} value={trip.mealDeductionCount} onChanged={refreshTrip} />
+          <ReceiptManager
+            tripId={id}
+            category="BREAKFAST"
+            initialReceipts={receipts}
+            autoSettlement={trip.autoSettlement}
+            tripStartDate={trip.startDate}
+            tripEndDate={trip.endDate}
+            tripStops={trip.stops}
+            onChange={refresh}
+          />
+        </main>
+      )}
+    </LocalDataBoundary>
   );
 }

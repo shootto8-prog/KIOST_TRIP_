@@ -12,16 +12,16 @@ type StopData = {
 
 export default function TripRouteSection({
   tripId,
-  ownerEmail,
   startDate,
   endDate,
   stops,
+  onUpdated,
 }: {
   tripId: string;
-  ownerEmail: string | null;
   startDate: string; // ISO
   endDate: string; // ISO
   stops: StopData[];
+  onUpdated?: () => void;
 }) {
   const [editing, setEditing] = useState(false);
 
@@ -29,14 +29,16 @@ export default function TripRouteSection({
     return (
       <TripForm
         tripId={tripId}
-        ownerEmail={ownerEmail ?? ""}
         initialStartDate={startDate.slice(0, 10)}
         initialEndDate={endDate.slice(0, 10)}
         initialStops={stops.map((s) => ({
           type: s.type,
           location: s.location,
         }))}
-        onSaved={() => setEditing(false)}
+        onSaved={() => {
+          setEditing(false);
+          onUpdated?.();
+        }}
         onCancel={() => setEditing(false)}
       />
     );

@@ -1,21 +1,12 @@
 import nodemailer from "nodemailer";
 import type Mail from "nodemailer/lib/mailer";
+import { isEmailConfigured } from "./emailConfig";
 
 export class SendEmailError extends Error {}
 
-/**
- * SMTP_* 환경변수가 전부 채워져 있는지 확인한다. 비어있으면 이메일 기능은 "미설정"으로 간주해
- * 조용히 비활성화된다 - 회사 SMTP 계정을 받기 전까지는 개인 계정을 쓰지 않기로 했기 때문에,
- * 지금은 이 값이 항상 false다. 값을 채우기만 하면(재배포 없이) 바로 켜진다.
- */
-export function isEmailConfigured(): boolean {
-  return Boolean(
-    process.env.SMTP_HOST &&
-      process.env.SMTP_USER &&
-      process.env.SMTP_PASS &&
-      process.env.SMTP_FROM_EMAIL
-  );
-}
+// 하위 호환 - 예전부터 sendEmail.ts에서 isEmailConfigured를 가져다 쓰던 곳(서버 라우트)이
+// 계속 동작하도록 재수출한다. 실제 정의는 emailConfig.ts로 옮겼다(클라이언트 번들 오염 방지).
+export { isEmailConfigured };
 
 function getTransporter() {
   const port = Number(process.env.SMTP_PORT) || 587;

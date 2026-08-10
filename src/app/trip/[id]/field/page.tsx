@@ -1,39 +1,38 @@
-import { notFound } from "next/navigation";
-import { prisma } from "@/lib/prisma";
-import { toReceiptItem } from "@/lib/receipt";
+"use client";
+
+import { useParams } from "next/navigation";
 import CategoryPageHeader from "@/components/CategoryPageHeader";
 import ReceiptManager from "@/components/ReceiptManager";
+import LocalDataBoundary from "@/components/LocalDataBoundary";
 import { IconFieldPhoto } from "@/components/icons";
+import { useTrip } from "@/lib/useLocalTrip";
+import { useReceipts } from "@/lib/useLocalReceipts";
 
-export default async function FieldPhotoPage({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}) {
-  const { id } = await params;
-  const [trip, receipts] = await Promise.all([
-    prisma.trip.findUnique({ where: { id } }),
-    prisma.receipt.findMany({
-      where: { tripId: id, category: "FIELD" },
-      orderBy: { createdAt: "desc" },
-      include: { images: { orderBy: { order: "asc" } } },
-    }),
-  ]);
-  if (!trip) notFound();
+export default function FieldPhotoPage() {
+  const { id } = useParams<{ id: string }>();
+  const { status: tripStatus, trip } = useTrip(id);
+  const { status: receiptsStatus, receipts, refresh } = useReceipts(id, "FIELD");
 
   return (
-    <main className="space-y-6">
-      <CategoryPageHeader
-        tripId={id}
-        icon={<IconFieldPhoto className="size-12" />}
-        title="현장사진"
-      />
-      <ReceiptManager
-        tripId={id}
-        category="FIELD"
-        initialReceipts={receipts.map(toReceiptItem)}
-        autoSettlement={trip.autoSettlement}
-      />
-    </main>
+    <LocalDataBoundary
+      loading={tripStatus === "loading" || receiptsStatus === "loading"}
+      notFound={tripStatus === "not-found"}
+    >
+      {trip && (
+        <main className="space-y-6">
+          <CategoryPageHeader tripId={id} icon={<IconFieldPhoto className="size-12" />} title="현장사진" />
+          <ReceiptManager
+            tripId={id}
+            category="FIELD"
+            initialReceipts={receipts}
+            autoSettlement={trip.autoSettlement}
+            tripStartDate={trip.startDate}
+            tripEndDate={trip.endDate}
+            tripStops={trip.stops}
+            onChange={refresh}
+          />
+        </main>
+      )}
+    </LocalDataBoundary>
   );
 }

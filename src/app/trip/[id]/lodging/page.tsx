@@ -1,39 +1,38 @@
-import { notFound } from "next/navigation";
-import { prisma } from "@/lib/prisma";
-import { toReceiptItem } from "@/lib/receipt";
+"use client";
+
+import { useParams } from "next/navigation";
 import CategoryPageHeader from "@/components/CategoryPageHeader";
 import ReceiptManager from "@/components/ReceiptManager";
+import LocalDataBoundary from "@/components/LocalDataBoundary";
 import { IconLodging } from "@/components/icons";
+import { useTrip } from "@/lib/useLocalTrip";
+import { useReceipts } from "@/lib/useLocalReceipts";
 
-export default async function LodgingPage({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}) {
-  const { id } = await params;
-  const [trip, receipts] = await Promise.all([
-    prisma.trip.findUnique({ where: { id } }),
-    prisma.receipt.findMany({
-      where: { tripId: id, category: "LODGING" },
-      orderBy: { createdAt: "desc" },
-      include: { images: { orderBy: { order: "asc" } } },
-    }),
-  ]);
-  if (!trip) notFound();
+export default function LodgingPage() {
+  const { id } = useParams<{ id: string }>();
+  const { status: tripStatus, trip } = useTrip(id);
+  const { status: receiptsStatus, receipts, refresh } = useReceipts(id, "LODGING");
 
   return (
-    <main className="space-y-6">
-      <CategoryPageHeader
-        tripId={id}
-        icon={<IconLodging className="size-12" />}
-        title="숙박"
-      />
-      <ReceiptManager
-        tripId={id}
-        category="LODGING"
-        initialReceipts={receipts.map(toReceiptItem)}
-        autoSettlement={trip.autoSettlement}
-      />
-    </main>
+    <LocalDataBoundary
+      loading={tripStatus === "loading" || receiptsStatus === "loading"}
+      notFound={tripStatus === "not-found"}
+    >
+      {trip && (
+        <main className="space-y-6">
+          <CategoryPageHeader tripId={id} icon={<IconLodging className="size-12" />} title="숙박" />
+          <ReceiptManager
+            tripId={id}
+            category="LODGING"
+            initialReceipts={receipts}
+            autoSettlement={trip.autoSettlement}
+            tripStartDate={trip.startDate}
+            tripEndDate={trip.endDate}
+            tripStops={trip.stops}
+            onChange={refresh}
+          />
+        </main>
+      )}
+    </LocalDataBoundary>
   );
 }
