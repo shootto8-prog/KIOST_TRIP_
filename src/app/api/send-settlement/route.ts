@@ -14,8 +14,20 @@ const PDF_FETCH_TIMEOUT_MS = 30_000;
 // 후 적용). 필요하면 .env의 ALLOWED_EMAIL_DOMAIN으로 재정의할 수 있다.
 const ALLOWED_EMAIL_DOMAIN = (process.env.ALLOWED_EMAIL_DOMAIN || "kiost.ac.kr").toLowerCase();
 
+// 사내 도메인 제한과 별개로, 테스트용으로 특정 개인 이메일 몇 개만 예외로 허용하고 싶을 때 쓴다
+// (2026-08-10). gmail.com 도메인 전체를 열면 오픈릴레이 문제가 다시 생기니, 정확한 주소만 콤마로
+// 나열한다. 비워두면 위 도메인 제한만 적용된다.
+const EXTRA_ALLOWED_EMAILS = new Set(
+  (process.env.EXTRA_ALLOWED_EMAILS || "")
+    .toLowerCase()
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean)
+);
+
 function hasAllowedDomain(email: string): boolean {
-  return email.toLowerCase().endsWith(`@${ALLOWED_EMAIL_DOMAIN}`);
+  const lower = email.toLowerCase();
+  return lower.endsWith(`@${ALLOWED_EMAIL_DOMAIN}`) || EXTRA_ALLOWED_EMAILS.has(lower);
 }
 
 /**
