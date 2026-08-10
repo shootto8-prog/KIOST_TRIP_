@@ -3,20 +3,18 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "postinstall": "prisma generate",
     "dev": "next dev -p 3001",
     "build": "next build",
     "start": "next start -p 3001",
     "lint": "next lint",
-    "prisma:generate": "prisma generate",
-    "prisma:migrate": "prisma migrate dev",
-    "test": "vitest run"
+    "test": "vitest run",
+    "sync:fares": "node scripts/buildTransportFares.mjs"
   },
   "dependencies": {
     "@pdf-lib/fontkit": "^1.1.1",
-    "@prisma/client": "^6.19.3",
     "@vercel/blob": "^2.6.1",
-    "heic-convert": "^2.1.0",
+    "heic2any": "^0.0.4",
+    "idb": "^8.0.3",
     "mupdf": "^1.28.0",
     "next": "^16.2.10",
     "nodemailer": "^9.0.3",
@@ -27,16 +25,16 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.3.3",
-    "@types/heic-convert": "^2.1.1",
     "@types/node": "^26.1.1",
     "@types/nodemailer": "^8.0.1",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "autoprefixer": "^10.5.4",
+    "fake-indexeddb": "^6.2.5",
     "postcss": "^8.5.20",
-    "prisma": "^6.19.3",
     "tailwindcss": "^4.3.3",
     "typescript": "^5.9.3",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.10",
+    "xlsx": "^0.18.5"
   }
 }
