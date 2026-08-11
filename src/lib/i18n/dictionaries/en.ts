@@ -7,6 +7,7 @@ import type { Dictionary } from "./ko";
 const en: Dictionary = {
   common: {
     loading: "Loading...",
+    processing: "Processing...",
   },
   themeToggle: {
     label: "Toggle dark mode",
@@ -46,6 +47,26 @@ const en: Dictionary = {
   },
   categoryCard: {
     noReceipts: "No receipts yet",
+  },
+  categoryPageHeader: {
+    backAria: "Back to trip",
+  },
+  tripHub: {
+    backToList: "Trip List",
+    statusCompleted: "Completed",
+    autoSettlementOffTitle: "Auto-settlement off",
+    autoSettlementOffBody: "The submitted documents will be reviewed manually to confirm the settlement amount.",
+    pdfLabelAuto: "Download Settlement PDF",
+    pdfLabelManual: "Download Submission PDF",
+  },
+  tripRoute: {
+    title: "Trip Route",
+    editButton: "Edit Trip Info",
+    stopoverBadge: "+Stopover",
+  },
+  tripStatus: {
+    complete: "End Trip",
+    reopen: "Reopen as Active",
   },
 };
 

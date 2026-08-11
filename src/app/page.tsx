@@ -52,7 +52,7 @@ export default function HomePage() {
                         <span className="inline-block rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">
                           {t.home.statusActive}
                         </span>
-                        <TripDeleteButton tripId={trip.id} label="취소" onDeleted={refresh} />
+                        <TripDeleteButton tripId={trip.id} kind="cancel" onDeleted={refresh} />
                       </div>
                       <Link href={`/trip/${trip.id}`} className="block active:scale-[0.99]">
                         <p className="mt-1.5 text-[15px] font-semibold text-neutral-900 dark:text-neutral-100">
@@ -124,7 +124,7 @@ export default function HomePage() {
                             {formatDate(trip.startDate)} ~ {formatDate(trip.endDate)}
                           </p>
                         </Link>
-                        <TripDeleteButton tripId={trip.id} label="삭제" onDeleted={refresh} />
+                        <TripDeleteButton tripId={trip.id} kind="delete" onDeleted={refresh} />
                       </div>
                     </div>
                   );

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import TripForm from "./TripForm";
 import { formatDate, STOP_TYPE_LABEL } from "@/lib/format";
+import { useT } from "@/lib/i18n/LanguageProvider";
 
 type StopData = {
   id: string;
@@ -24,6 +25,7 @@ export default function TripRouteSection({
   onUpdated?: () => void;
 }) {
   const [editing, setEditing] = useState(false);
+  const t = useT();
 
   if (editing) {
     return (
@@ -48,14 +50,14 @@ export default function TripRouteSection({
     <section className="shadow-soft rounded-[28px] border border-black/5 bg-white/80 p-5 dark:border-white/10 dark:bg-white/[0.04]">
       <div className="flex items-center justify-between">
         <h1 className="text-[15px] font-semibold text-neutral-900 dark:text-neutral-100">
-          출장경로
+          {t.tripRoute.title}
         </h1>
         <button
           type="button"
           onClick={() => setEditing(true)}
           className="text-[13px] font-medium text-brand dark:text-brand-light"
         >
-          출장 정보 변경
+          {t.tripRoute.editButton}
         </button>
       </div>
       <p className="mt-2 text-[13.5px] font-medium text-neutral-500">
@@ -82,7 +84,7 @@ export default function TripRouteSection({
             </div>
             {stopoverCount > 0 && (
               <span className="shrink-0 rounded-full bg-neutral-500/10 px-2 py-1 text-[11px] font-medium text-neutral-500 dark:text-neutral-400">
-                +경유
+                {t.tripRoute.stopoverBadge}
               </span>
             )}
           </div>

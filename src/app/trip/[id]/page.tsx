@@ -14,6 +14,7 @@ import { IconBreakfast, IconTransport, IconLodging, IconFieldPhoto, IconChevronL
 import { useTrip } from "@/lib/useLocalTrip";
 import { useReceipts } from "@/lib/useLocalReceipts";
 import { summarizeByCategory } from "@/lib/tripSummaryLocal";
+import { useT } from "@/lib/i18n/LanguageProvider";
 
 export default function TripHubPage() {
   const { id } = useParams<{ id: string }>();
@@ -21,6 +22,7 @@ export default function TripHubPage() {
   const { status: receiptsStatus, receipts } = useReceipts(id);
   const { byCategory, sumByCategory } = summarizeByCategory(receipts);
   const isCompleted = trip?.status === "COMPLETED";
+  const t = useT();
   // isEmailConfigured()는 process.env.SMTP_*를 읽는데 이 값은 서버에서만 채워지므로, 이 클라이언트
   // 컴포넌트에서 직접 부르면 항상 false가 나온다 - /api/email-status로 서버 판정을 받아온다
   // (2026-08-10, "준비 중" 배너가 SMTP 설정과 무관하게 항상 뜨던 버그 수정).
@@ -45,7 +47,7 @@ export default function TripHubPage() {
               className="inline-flex items-center gap-1 text-[14px] font-medium text-brand dark:text-brand-light"
             >
               <IconChevronLeft className="size-5" />
-              출장 목록
+              {t.tripHub.backToList}
             </Link>
             <span
               className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${
@@ -54,7 +56,7 @@ export default function TripHubPage() {
                   : "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
               }`}
             >
-              {isCompleted ? "종료됨" : "진행중"}
+              {isCompleted ? t.tripHub.statusCompleted : t.home.statusActive}
             </span>
           </div>
 
@@ -70,16 +72,16 @@ export default function TripHubPage() {
             <section className="shadow-glow rounded-[28px] bg-brand p-5 text-white">
               {!trip.autoSettlement && (
                 <>
-                  <p className="text-[13px] font-medium text-blue-100">자동정산 미사용</p>
+                  <p className="text-[13px] font-medium text-blue-100">{t.tripHub.autoSettlementOffTitle}</p>
                   <p className="mt-1 text-[15px] font-semibold leading-relaxed">
-                    제출된 증빙 서류는 담당자가 직접 확인해 정산 금액을 확정합니다.
+                    {t.tripHub.autoSettlementOffBody}
                   </p>
                 </>
               )}
               <div className="mt-4 flex flex-wrap items-center gap-2">
                 <PdfDownloadButton
                   tripId={id}
-                  label={trip.autoSettlement ? "정산 결과 PDF 다운로드" : "제출 서류 PDF 다운로드"}
+                  label={trip.autoSettlement ? t.tripHub.pdfLabelAuto : t.tripHub.pdfLabelManual}
                 />
                 <EmailSendButton tripId={id} trip={trip} receipts={receipts} enabled={emailEnabled} />
               </div>
@@ -90,7 +92,7 @@ export default function TripHubPage() {
             <CategoryCard
               href={`/trip/${id}/breakfast`}
               icon={<IconBreakfast className="size-20" />}
-              label="조식"
+              label={t.categories.breakfast}
               count={byCategory.BREAKFAST.length}
               amount={sumByCategory.BREAKFAST}
               autoSettlement={trip.autoSettlement}
@@ -98,7 +100,7 @@ export default function TripHubPage() {
             <CategoryCard
               href={`/trip/${id}/transport`}
               icon={<IconTransport className="size-20" />}
-              label="교통"
+              label={t.categories.transport}
               count={byCategory.TRANSPORT.length}
               amount={sumByCategory.TRANSPORT}
               autoSettlement={trip.autoSettlement}
@@ -106,7 +108,7 @@ export default function TripHubPage() {
             <CategoryCard
               href={`/trip/${id}/lodging`}
               icon={<IconLodging className="size-20" />}
-              label="숙박"
+              label={t.categories.lodging}
               count={byCategory.LODGING.length}
               amount={sumByCategory.LODGING}
               autoSettlement={trip.autoSettlement}
@@ -114,7 +116,7 @@ export default function TripHubPage() {
             <CategoryCard
               href={`/trip/${id}/field`}
               icon={<IconFieldPhoto className="size-20" />}
-              label="현장사진"
+              label={t.categories.field}
               count={byCategory.FIELD.length}
               amount={sumByCategory.FIELD}
               autoSettlement={trip.autoSettlement}
@@ -125,7 +127,7 @@ export default function TripHubPage() {
             <TripStatusButton tripId={id} status={trip.status} onChanged={refresh} />
             <TripDeleteButton
               tripId={id}
-              label={isCompleted ? "삭제" : "취소"}
+              kind={isCompleted ? "delete" : "cancel"}
               redirectTo="/"
               className="inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-[12.5px] font-medium text-red-500 hover:bg-red-500/10"
             />

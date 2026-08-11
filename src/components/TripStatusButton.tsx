@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { updateTrip } from "@/lib/localDb";
+import { useT } from "@/lib/i18n/LanguageProvider";
 
 export default function TripStatusButton({
   tripId,
@@ -13,6 +14,7 @@ export default function TripStatusButton({
   onChanged?: () => void;
 }) {
   const [loading, setLoading] = useState(false);
+  const t = useT();
 
   async function changeStatus(next: "ACTIVE" | "COMPLETED") {
     setLoading(true);
@@ -32,7 +34,7 @@ export default function TripStatusButton({
         disabled={loading}
         className="w-full rounded-full bg-neutral-900 py-3 text-[15px] font-semibold text-white disabled:opacity-50 dark:bg-white dark:text-neutral-900"
       >
-        {loading ? "처리 중..." : "출장 종료"}
+        {loading ? t.common.processing : t.tripStatus.complete}
       </button>
     );
   }
@@ -44,7 +46,7 @@ export default function TripStatusButton({
       disabled={loading}
       className="text-[13px] font-medium text-neutral-500 underline-offset-2 hover:underline disabled:opacity-50"
     >
-      {loading ? "처리 중..." : "다시 진행중으로 되돌리기"}
+      {loading ? t.common.processing : t.tripStatus.reopen}
     </button>
   );
 }

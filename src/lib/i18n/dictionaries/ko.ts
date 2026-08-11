@@ -7,6 +7,7 @@
 const ko = {
   common: {
     loading: "불러오는 중...",
+    processing: "처리 중...",
   },
   themeToggle: {
     label: "다크모드 전환",
@@ -45,6 +46,26 @@ const ko = {
   },
   categoryCard: {
     noReceipts: "등록된 영수증 없음",
+  },
+  categoryPageHeader: {
+    backAria: "출장으로 돌아가기",
+  },
+  tripHub: {
+    backToList: "출장 목록",
+    statusCompleted: "종료됨",
+    autoSettlementOffTitle: "자동정산 미사용",
+    autoSettlementOffBody: "제출된 증빙 서류는 담당자가 직접 확인해 정산 금액을 확정합니다.",
+    pdfLabelAuto: "정산 결과 PDF 다운로드",
+    pdfLabelManual: "제출 서류 PDF 다운로드",
+  },
+  tripRoute: {
+    title: "출장경로",
+    editButton: "출장 정보 변경",
+    stopoverBadge: "+경유",
+  },
+  tripStatus: {
+    complete: "출장 종료",
+    reopen: "다시 진행중으로 되돌리기",
   },
 };
 
