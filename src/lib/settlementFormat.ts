@@ -1,5 +1,6 @@
-import { TRANSPORT_MODE_LABEL, formatKrw } from "./format";
+import { transportModeLabel, formatKrw } from "./format";
 import { FLAT_RATE_TRANSPORT_MODES } from "./verifyReceipt";
+import type { Locale } from "./i18n/locale";
 
 /**
  * 금액이 있으면 숫자만(사내 업무망 표기에 맞춰 "원" 없이), 없으면(0원) "-"로 표기한다.
@@ -23,9 +24,12 @@ export function countOrDash(count: number, suffix: string): string {
  * (2026-08-07 안정성 재검토 - 라벨이 신청액처럼 보인다는 지적 반영, 원금액까지 보여주려면
  * DB에 별도 컬럼이 필요해 이번엔 라벨 명시로 대응).
  */
-export function countAndAmount(count: number, amount: number): string {
+export function countAndAmount(count: number, amount: number, locale: Locale = "ko"): string {
   if (count === 0) return "-";
-  return amount > 0 ? `${count}건 제출, 확인금액 ${formatKrw(amount)}` : `${count}건 제출`;
+  if (locale === "ko") {
+    return amount > 0 ? `${count}건 제출, 확인금액 ${formatKrw(amount, locale)}` : `${count}건 제출`;
+  }
+  return amount > 0 ? `${count} submitted, confirmed amount ${formatKrw(amount, locale)}` : `${count} submitted`;
 }
 
 export type TransportSummaryItem = { transportMode: string | null; verdictAmount: number | null };
@@ -37,7 +41,7 @@ export type TransportSummaryItem = { transportMode: string | null; verdictAmount
  * (예: "3건 제출, 확인금액 45,000원, 고속철도"). 자동정산 미사용 출장의 선박/항공은 건수도
  * 함께 보여준다(2026-08-07 - 사용자 입력값이 PDF에 안 보인다는 실사용 피드백 반영).
  */
-export function buildTransportCell(items: TransportSummaryItem[], autoSettlement: boolean): string {
+export function buildTransportCell(items: TransportSummaryItem[], autoSettlement: boolean, locale: Locale = "ko"): string {
   if (items.length === 0) return "-";
   const flatModes = new Set<string>(FLAT_RATE_TRANSPORT_MODES);
   const flatItems = items.filter((r) => r.transportMode && flatModes.has(r.transportMode));
@@ -47,15 +51,15 @@ export function buildTransportCell(items: TransportSummaryItem[], autoSettlement
 
   const parts: string[] = [];
   if (autoSettlement) {
-    if (amountSum > 0) parts.push(formatKrw(amountSum));
+    if (amountSum > 0) parts.push(formatKrw(amountSum, locale));
   } else if (nonFlatItems.length > 0 || flatItems.length > 0) {
-    parts.push(countAndAmount(items.length, amountSum));
+    parts.push(countAndAmount(items.length, amountSum, locale));
   }
-  for (const m of flatModesUsed) parts.push(TRANSPORT_MODE_LABEL[m] ?? m);
+  for (const m of flatModesUsed) parts.push(transportModeLabel(m, locale));
   if (parts.length > 0) return parts.join(", ");
   // 교통수단이 없는(이론상 구버전) 영수증이 섞이면 위 분류에 하나도 안 걸려 등록된 건이
   // 있는데도 "-"로 조용히 안 보일 수 있었다 - 최소한 건수는 남긴다. (2026-08-07 안정성 재검토)
-  return `${items.length}건 제출`;
+  return locale === "ko" ? `${items.length}건 제출` : `${items.length} submitted`;
 }
 
 /**

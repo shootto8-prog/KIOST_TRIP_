@@ -212,6 +212,20 @@ const en: Dictionary = {
     generating: "Generating PDF...",
     errGenerate: "Failed to generate the PDF. Please try again in a moment.",
   },
+  emailSendButton: {
+    comingSoon: "Email delivery isn't set up yet (coming once a company SMTP account is connected).",
+    receiveByEmail: "Receive by Email",
+    emailPlaceholder: "Recipient email address (@kiost.ac.kr)",
+    sending: "Sending...",
+    send: "Send",
+    errSendFailed: "Failed to send.",
+    errSendError: "An error occurred while sending.",
+    attachmentIntroSimple: "Attached are the breakfast, transport, and lodging receipts and field photos.",
+    attachmentIntroAuto: "Attached is the trip expense settlement report.",
+    attachmentIntroManual: "This trip did not use auto-settlement. Please review the attached submitted documents and confirm the settlement amount.",
+    subjectPrefix: "[Trip Expense Assistant] Domestic Travel Expense Report",
+    grandTotalLabel: "Total",
+  },
 };
 
 export default en;

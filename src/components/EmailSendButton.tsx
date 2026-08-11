@@ -6,9 +6,9 @@ import { IconMail } from "./icons";
 import { assembleTripPdf } from "@/lib/pdfAssembleClient";
 import { getRememberedEmail, setRememberedEmail } from "@/lib/localSettings";
 import { summarizeByCategory } from "@/lib/tripSummaryLocal";
-import { buildTransportCell, countAndAmount, amountOrDash, countOrDash } from "@/lib/settlementFormat";
-import { CATEGORY_LABEL, formatDate } from "@/lib/format";
 import type { LocalTrip, LocalReceipt } from "@/lib/localDb";
+import { useLocale, useT } from "@/lib/i18n/LanguageProvider";
+import { buildSentMessage, buildEmailSubject, buildSimpleModeBodyLines, buildDetailedModeBodyLines } from "@/lib/i18n/messages/emailBody";
 
 /**
  * 예전엔 서버가 트립/영수증을 Prisma에서 직접 읽어 제목·본문·PDF를 전부 만들었지만, 이제 그
@@ -31,6 +31,8 @@ export default function EmailSendButton({
   const [email, setEmail] = useState("");
   const [sending, setSending] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const t = useT();
+  const { locale } = useLocale();
 
   useEffect(() => {
     getRememberedEmail().then((remembered) => {
@@ -43,7 +45,7 @@ export default function EmailSendButton({
     setSending(true);
     setResult(null);
     try {
-      const pdfBlob = await assembleTripPdf(tripId);
+      const pdfBlob = await assembleTripPdf(tripId, locale);
       const uploaded = await upload(`outbound/${tripId}.pdf`, pdfBlob, {
         access: "private",
         handleUploadUrl: "/api/send-settlement/token",
@@ -52,44 +54,14 @@ export default function EmailSendButton({
 
       const { byCategory, sumByCategory, totalAmount } = summarizeByCategory(receipts);
       const isSimple = trip.settlementMode === "SIMPLE";
-      const subject = `[정총무]국내여비 증빙서류 내역서 (${formatDate(trip.startDate)} ~ ${formatDate(trip.endDate)})`;
+      const subject = buildEmailSubject(locale, trip);
 
-      let bodyLines: string[];
-      if (isSimple) {
-        // 간편모드는 PDF의 "항목별 합계"(simpleSummaryTable, pdfAssembleClient.ts)와 완전히
-        // 같은 데이터(sumByCategory - 규정 검토를 거친 확인금액 합계, 조식도 상세모드의 일수
-        // 산식 없이 그대로)를 써서, 첨부 PDF와 메일 본문 숫자가 어긋나지 않게 한다(2026-08-11).
-        const summaryLine = (label: string, count: number, amount: number) => {
-          const amt = amountOrDash(amount);
-          return `${label}   ${countOrDash(count, "건")}   ${amt === "-" ? "-" : `${amt}원`}`;
-        };
-        bodyLines = [
-          "조식, 교통, 숙박영수증, 현장사진 증빙 서류를 첨부드립니다.",
-          "",
-          summaryLine(CATEGORY_LABEL.BREAKFAST, byCategory.BREAKFAST.length, sumByCategory.BREAKFAST),
-          summaryLine(CATEGORY_LABEL.TRANSPORT, byCategory.TRANSPORT.length, sumByCategory.TRANSPORT),
-          summaryLine(CATEGORY_LABEL.LODGING, byCategory.LODGING.length, sumByCategory.LODGING),
-          `현장사진   ${countOrDash(byCategory.FIELD.length, "건")}`,
-        ];
-      } else {
-        // PDF의 "항목별 합계" 표와 같은 표시 규칙(countAndAmount/buildTransportCell)을 그대로 써서,
-        // 첨부 PDF와 메일 본문에 서로 다른 값이 찍히는 걸 막는다.
-        bodyLines = [
-          trip.autoSettlement
-            ? "출장 실비정산 내역을 첨부드립니다."
-            : "자동정산을 사용하지 않은 출장입니다. 제출된 증빙 서류를 첨부드리니 확인 후 정산 금액을 확정해 주세요.",
-          "",
-          trip.autoSettlement
-            ? `${CATEGORY_LABEL.BREAKFAST}   ${byCategory.BREAKFAST.length}건   ${sumByCategory.BREAKFAST.toLocaleString("ko-KR")}원`
-            : `${CATEGORY_LABEL.BREAKFAST}   ${countAndAmount(byCategory.BREAKFAST.length, sumByCategory.BREAKFAST)}`,
-          `${CATEGORY_LABEL.TRANSPORT}   ${buildTransportCell(byCategory.TRANSPORT, trip.autoSettlement)}`,
-          trip.autoSettlement
-            ? `${CATEGORY_LABEL.LODGING}   ${byCategory.LODGING.length}건   ${sumByCategory.LODGING.toLocaleString("ko-KR")}원`
-            : `${CATEGORY_LABEL.LODGING}   ${countAndAmount(byCategory.LODGING.length, sumByCategory.LODGING)}`,
-          `현장사진   ${byCategory.FIELD.length}건`,
-          ...(trip.autoSettlement ? [`합계   ${totalAmount.toLocaleString("ko-KR")}원`] : []),
-        ];
-      }
+      // PDF와 완전히 같은 데이터(sumByCategory - 규정 검토를 거친 확인금액 합계)와 표시 규칙을
+      // 써서, 첨부 PDF와 메일 본문 숫자가 어긋나지 않게 한다(2026-08-11 원본 로직 그대로 유지,
+      // locale만 messages/emailBody.ts의 빌더 함수로 추가).
+      const bodyLines = isSimple
+        ? buildSimpleModeBodyLines(locale, { byCategory, sumByCategory })
+        : buildDetailedModeBodyLines(locale, trip, { byCategory, sumByCategory, transportItems: byCategory.TRANSPORT }, totalAmount);
 
       const res = await fetch("/api/send-settlement", {
         method: "POST",
@@ -104,14 +76,17 @@ export default function EmailSendButton({
       });
       const data = await res.json();
       if (res.ok) {
-        setResult({ ok: true, message: `${email}로 보냈습니다.` });
+        setResult({ ok: true, message: buildSentMessage(locale, email) });
         await setRememberedEmail(email);
       } else {
-        setResult({ ok: false, message: data.error ?? "발송에 실패했습니다." });
+        // 서버(/api/send-settlement)의 에러 문자열은 아직 한국어 전용이다(2026-08-11 영어 버전
+        // 작업 범위 밖으로 결정 - 우선순위 낮음). 영어 모드에서는 원문 대신 일반 실패 메시지를
+        // 보여줘서 화면에 한국어 원문이 섞여 노출되는 걸 막는다.
+        setResult({ ok: false, message: locale === "ko" && data.error ? data.error : t.emailSendButton.errSendFailed });
       }
     } catch (err) {
       console.error("정산서 발송 실패:", err);
-      setResult({ ok: false, message: "발송 중 오류가 발생했습니다." });
+      setResult({ ok: false, message: t.emailSendButton.errSendError });
     } finally {
       setSending(false);
     }
@@ -121,7 +96,7 @@ export default function EmailSendButton({
     return (
       <div className="flex min-w-[200px] flex-1 items-center gap-2 rounded-2xl bg-white/10 px-4 py-2.5 text-[12.5px] text-blue-100">
         <IconMail className="size-4 shrink-0" />
-        이메일 발송 기능은 준비 중입니다 (회사 SMTP 계정 연동 후 제공 예정)
+        {t.emailSendButton.comingSoon}
       </div>
     );
   }
@@ -134,7 +109,7 @@ export default function EmailSendButton({
         className="shrink-0 inline-flex items-center gap-2 rounded-full bg-white/15 px-4 py-2.5 text-[14px] font-semibold text-white backdrop-blur transition hover:bg-white/25"
       >
         <IconMail className="size-5" />
-        이메일로 받기
+        {t.emailSendButton.receiveByEmail}
       </button>
     );
   }
@@ -147,7 +122,7 @@ export default function EmailSendButton({
           required
           value={email}
           onChange={(e) => setEmail(e.target.value)}
-          placeholder="받으실 이메일 주소 (@kiost.ac.kr)"
+          placeholder={t.emailSendButton.emailPlaceholder}
           className="min-w-0 flex-1 rounded-full bg-white/15 px-4 py-2.5 text-[14px] text-white outline-none placeholder:text-blue-100"
         />
         <button
@@ -155,7 +130,7 @@ export default function EmailSendButton({
           disabled={sending}
           className="shrink-0 rounded-full bg-white px-4 py-2.5 text-[14px] font-semibold text-brand disabled:opacity-50"
         >
-          {sending ? "발송 중..." : "보내기"}
+          {sending ? t.emailSendButton.sending : t.emailSendButton.send}
         </button>
       </form>
       {result && (

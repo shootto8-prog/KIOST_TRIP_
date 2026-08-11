@@ -211,6 +211,20 @@ const ko = {
     generating: "PDF 생성 중...",
     errGenerate: "PDF 생성에 실패했습니다. 잠시 후 다시 시도해주세요.",
   },
+  emailSendButton: {
+    comingSoon: "이메일 발송 기능은 준비 중입니다 (회사 SMTP 계정 연동 후 제공 예정)",
+    receiveByEmail: "이메일로 받기",
+    emailPlaceholder: "받으실 이메일 주소 (@kiost.ac.kr)",
+    sending: "발송 중...",
+    send: "보내기",
+    errSendFailed: "발송에 실패했습니다.",
+    errSendError: "발송 중 오류가 발생했습니다.",
+    attachmentIntroSimple: "조식, 교통, 숙박영수증, 현장사진 증빙 서류를 첨부드립니다.",
+    attachmentIntroAuto: "출장 실비정산 내역을 첨부드립니다.",
+    attachmentIntroManual: "자동정산을 사용하지 않은 출장입니다. 제출된 증빙 서류를 첨부드리니 확인 후 정산 금액을 확정해 주세요.",
+    subjectPrefix: "[정총무]국내여비 증빙서류 내역서",
+    grandTotalLabel: "합계",
+  },
 };
 
 export default ko;
