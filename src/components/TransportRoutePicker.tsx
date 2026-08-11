@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { searchBusRoutes, searchCarRoutes, searchRailRoutes, type PositionGrade, type RouteSearchResult } from "@/lib/transportFares";
 import { IconTrash, IconPlus } from "./icons";
 
@@ -135,6 +135,16 @@ export default function TransportRoutePicker({
   const results = searchByMode(transportMode, from, to, grade);
   const notFound = (from.trim().length > 0 || to.trim().length > 0) && results.length === 0;
 
+  // 검색창이 열릴 때(처음 열릴 때든 "구간 추가"로 다시 열 때든) 출발 입력칸에 바로 포커스를
+  // 준다 - 어디부터 눌러야 할지 안내가 없어 헤매던 문제 개선(2026-08-11). 출발을 다 입력하고
+  // Tab/Enter를 누르면 도착으로 포커스가 넘어간다(Tab은 DOM 순서상 원래 되고, Enter는 이 폼이
+  // <form> 밖이라 기본 동작이 없어 아래 onKeyDown으로 직접 옮겨준다).
+  const fromInputRef = useRef<HTMLInputElement>(null);
+  const toInputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (adding) fromInputRef.current?.focus();
+  }, [adding]);
+
   function selectResult(r: RouteSearchResult) {
     onChange([
       ...value,
@@ -169,14 +179,22 @@ export default function TransportRoutePicker({
         <div>
           <div className="flex items-center gap-2">
             <input
+              ref={fromInputRef}
               type="text"
               value={from}
               onChange={(e) => setFrom(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  toInputRef.current?.focus();
+                }
+              }}
               placeholder="출발 (예: 부산)"
               className="min-w-0 flex-1 rounded-xl border border-black/10 bg-white px-3 py-2.5 text-[15px] text-neutral-900 outline-none focus:border-brand dark:border-white/15 dark:bg-white/5 dark:text-neutral-100"
             />
             <span className="shrink-0 text-neutral-400">→</span>
             <input
+              ref={toInputRef}
               type="text"
               value={to}
               onChange={(e) => setTo(e.target.value)}
