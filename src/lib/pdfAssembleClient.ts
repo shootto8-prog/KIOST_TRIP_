@@ -195,6 +195,61 @@ class PdfWriter {
     this.y = top - totalH - 12;
   }
 
+  /**
+   * 간편모드용 "항목별 합계" - 구분/건수/합계금액 3열만 있는, "정산(안)"이 생기기 전의 예전
+   * 표 형태(2026-08-11). 판정/조정 없이 사용자가 입력한 금액을 그대로 보여주는 간편모드 취지에
+   * 맞춰, 산식(정산(안))이나 비고 칸 없이 결과 숫자만 나열한다.
+   */
+  simpleSummaryTable(rows: { label: string; count: string; total: string }[]) {
+    const labelW = 90;
+    const countW = 90;
+    const headerH = 22;
+    const rowH = 26;
+    const totalH = headerH + rows.length * rowH;
+    this.ensureSpace(totalH + 12);
+
+    const top = this.y;
+    const left = MARGIN;
+    const borderColor = rgb(0.82, 0.82, 0.85);
+    const headerBg = rgb(0.95, 0.96, 0.98);
+    const colX = [left, left + labelW, left + labelW + countW];
+
+    this.page.drawRectangle({ x: left, y: top - headerH, width: CONTENT_WIDTH, height: headerH, color: headerBg });
+    this.page.drawRectangle({
+      x: left,
+      y: top - totalH,
+      width: CONTENT_WIDTH,
+      height: totalH,
+      borderColor,
+      borderWidth: 1,
+    });
+    for (const x of colX.slice(1)) {
+      this.page.drawLine({ start: { x, y: top }, end: { x, y: top - totalH }, thickness: 1, color: borderColor });
+    }
+
+    const headers = ["구분", "건수", "합계금액"];
+    headers.forEach((h, i) => {
+      this.page.drawText(h, { x: colX[i] + 8, y: top - headerH + 7, size: 10.5, font: this.bold, color: COLOR_TEXT });
+    });
+
+    let cursorY = top - headerH;
+    rows.forEach((r) => {
+      this.page.drawLine({
+        start: { x: left, y: cursorY },
+        end: { x: left + CONTENT_WIDTH, y: cursorY },
+        thickness: 0.5,
+        color: borderColor,
+      });
+      const textY = cursorY - rowH / 2 - 4;
+      this.page.drawText(r.label, { x: colX[0] + 8, y: textY, size: 11, font: this.bold, color: COLOR_TEXT });
+      this.page.drawText(r.count, { x: colX[1] + 8, y: textY, size: 11, font: this.font, color: COLOR_TEXT });
+      this.page.drawText(r.total, { x: colX[2] + 8, y: textY, size: 11, font: this.font, color: COLOR_TEXT });
+      cursorY -= rowH;
+    });
+
+    this.y = top - totalH - 12;
+  }
+
   hr() {
     this.ensureSpace(14);
     this.page.drawLine({
@@ -318,75 +373,94 @@ export async function assembleTripPdf(tripId: string): Promise<Blob> {
   w.hr();
 
   w.text("항목별 합계", { size: 13, bold: true, gap: 20 });
-  // "정산(안)" 칸은 사내 업무망에 그대로 옮겨 적기 쉽도록 산식 형태로 보여준다(2026-08-10).
-  // 조식은 "1일 기본 45,000 × 총 일수 - 15,000(1일차 조식비 제외) + 앱에 등록된 조식 인정금액",
-  // 교통은 등록된 각 건의 금액을 "A + B + ..."로 나열, 숙박은 인정금액 합계 그대로. 사내 업무망
-  // 표기에 맞춰 이 PDF 안에서는 금액에 "원" 단위를 붙이지 않는다(2026-08-10, 사용자 요청).
-  // "합계금액" 칸은 그 산식을 미리 계산한 최종 숫자만 따로 보여준다(산식과 별개로 최종금액도
-  // 한눈에 보고 싶다는 피드백).
-  const totalDays = tripTotalDays(trip.startDate, trip.endDate);
-  const breakfastTotal = computeBreakfastSettlementTotal(
-    totalDays,
-    sumByCategory.BREAKFAST,
-    trip.mealDeductionCount
-  );
-  const transportAmounts = byCategory.TRANSPORT.map((r) => r.verdictAmount ?? 0);
-  const transportTotal = transportAmounts.reduce((s, a) => s + a, 0);
-  // 숙박 "비고"란 - 영수증 개별이 아니라 이 출장의 숙박 합계 전체 ÷ 전체 박수로 딱 한 번만
-  // 판단한다(사내 시스템 기준과 동일, 2026-08-10). ReceiptManager.tsx의 화면 안내와 같은 기준
-  // 함수(exceedsLodgingIntranetThreshold)를 써서 둘이 어긋나지 않게 한다.
-  const tripNights = Math.max(1, totalDays - 1);
-  const lodgingNote = exceedsLodgingIntranetThreshold(sumByCategory.LODGING, tripNights) ? "여비정산" : "-";
-  // 조식비를 실제로 신청한 경우(앱에 등록된 조식 인정금액이 있는 경우, 산식의 "+ N" 항이
-  // 붙는 것과 같은 조건)에만 "조식"이라고 표시한다(2026-08-10, 사용자 요청).
-  const breakfastNote = sumByCategory.BREAKFAST > 0 ? "조식" : "-";
-  w.settlementTable([
-    {
-      // 이 표에서만 "조식" 대신 "식비"로 표기한다(2026-08-10, 사용자 요청) - 다른 화면(카테고리
-      // 카드, 조식 메뉴 헤더 등)의 "조식" 표기는 그대로 둔다.
-      label: "식비",
-      count: countOrDash(byCategory.BREAKFAST.length, "건"),
-      total: breakfastTotal.toLocaleString("ko-KR"),
-      settlement: formatBreakfastSettlement(totalDays, sumByCategory.BREAKFAST, trip.mealDeductionCount),
-      note: breakfastNote,
-    },
-    {
-      label: CATEGORY_LABEL.TRANSPORT,
-      count: countOrDash(byCategory.TRANSPORT.length, "건"),
-      total: amountOrDash(transportTotal),
-      settlement: formatTransportSettlement(transportAmounts),
-      note: "-",
-    },
-    {
-      label: CATEGORY_LABEL.LODGING,
-      count: countOrDash(byCategory.LODGING.length, "건"),
-      total: amountOrDash(sumByCategory.LODGING),
-      settlement: amountOrDash(sumByCategory.LODGING),
-      note: lodgingNote,
-    },
-    {
-      label: "현장사진",
-      count: countOrDash(byCategory.FIELD.length, "건"),
-      total: "-",
-      settlement: "-",
-      note: "-",
-    },
-  ]);
-  w.spacer(4);
-  if (trip.autoSettlement) {
-    w.text(`전체 합계   ${totalAmount.toLocaleString("ko-KR")}`, {
-      size: 15,
-      bold: true,
-      color: COLOR_ACCENT,
-      gap: 28,
-    });
+
+  if (trip.settlementMode === "SIMPLE") {
+    // 간편모드는 "정산(안)" 산식·인트라넷 비고 칸이 있는 상세모드 표 대신, 예전처럼 구분/건수/
+    // 합계금액 3열짜리 단순한 표로 보여준다(2026-08-11). 금액은 상세모드와 마찬가지로 규정
+    // 검토를 거친 확인금액(verdictAmount) 합계다 - 조식만 상세모드와 달리 "45,000×일수-15,000+X"
+    // 산식으로 재계산하지 않고, 등록된 영수증의 확인금액 합계를 그대로 보여준다.
+    w.simpleSummaryTable([
+      { label: "조식", count: countOrDash(byCategory.BREAKFAST.length, "건"), total: amountOrDash(sumByCategory.BREAKFAST) },
+      {
+        label: CATEGORY_LABEL.TRANSPORT,
+        count: countOrDash(byCategory.TRANSPORT.length, "건"),
+        total: amountOrDash(sumByCategory.TRANSPORT),
+      },
+      { label: CATEGORY_LABEL.LODGING, count: countOrDash(byCategory.LODGING.length, "건"), total: amountOrDash(sumByCategory.LODGING) },
+      { label: "현장사진", count: countOrDash(byCategory.FIELD.length, "건"), total: "-" },
+    ]);
+    w.spacer(4);
   } else {
-    w.text("자동정산 미사용 - 담당자가 제출 서류를 확인해 금액을 확정합니다.", {
-      size: 12,
-      bold: true,
-      color: COLOR_ACCENT,
-      gap: 28,
-    });
+    // "정산(안)" 칸은 사내 업무망에 그대로 옮겨 적기 쉽도록 산식 형태로 보여준다(2026-08-10).
+    // 조식은 "1일 기본 45,000 × 총 일수 - 15,000(1일차 조식비 제외) + 앱에 등록된 조식 인정금액",
+    // 교통은 등록된 각 건의 금액을 "A + B + ..."로 나열, 숙박은 인정금액 합계 그대로. 사내 업무망
+    // 표기에 맞춰 이 PDF 안에서는 금액에 "원" 단위를 붙이지 않는다(2026-08-10, 사용자 요청).
+    // "합계금액" 칸은 그 산식을 미리 계산한 최종 숫자만 따로 보여준다(산식과 별개로 최종금액도
+    // 한눈에 보고 싶다는 피드백).
+    const totalDays = tripTotalDays(trip.startDate, trip.endDate);
+    const breakfastTotal = computeBreakfastSettlementTotal(
+      totalDays,
+      sumByCategory.BREAKFAST,
+      trip.mealDeductionCount
+    );
+    const transportAmounts = byCategory.TRANSPORT.map((r) => r.verdictAmount ?? 0);
+    const transportTotal = transportAmounts.reduce((s, a) => s + a, 0);
+    // 숙박 "비고"란 - 영수증 개별이 아니라 이 출장의 숙박 합계 전체 ÷ 전체 박수로 딱 한 번만
+    // 판단한다(사내 시스템 기준과 동일, 2026-08-10). ReceiptManager.tsx의 화면 안내와 같은 기준
+    // 함수(exceedsLodgingIntranetThreshold)를 써서 둘이 어긋나지 않게 한다.
+    const tripNights = Math.max(1, totalDays - 1);
+    const lodgingNote = exceedsLodgingIntranetThreshold(sumByCategory.LODGING, tripNights) ? "여비정산" : "-";
+    // 조식비를 실제로 신청한 경우(앱에 등록된 조식 인정금액이 있는 경우, 산식의 "+ N" 항이
+    // 붙는 것과 같은 조건)에만 "조식"이라고 표시한다(2026-08-10, 사용자 요청).
+    const breakfastNote = sumByCategory.BREAKFAST > 0 ? "조식" : "-";
+    w.settlementTable([
+      {
+        // 이 표에서만 "조식" 대신 "식비"로 표기한다(2026-08-10, 사용자 요청) - 다른 화면(카테고리
+        // 카드, 조식 메뉴 헤더 등)의 "조식" 표기는 그대로 둔다.
+        label: "식비",
+        count: countOrDash(byCategory.BREAKFAST.length, "건"),
+        total: breakfastTotal.toLocaleString("ko-KR"),
+        settlement: formatBreakfastSettlement(totalDays, sumByCategory.BREAKFAST, trip.mealDeductionCount),
+        note: breakfastNote,
+      },
+      {
+        label: CATEGORY_LABEL.TRANSPORT,
+        count: countOrDash(byCategory.TRANSPORT.length, "건"),
+        total: amountOrDash(transportTotal),
+        settlement: formatTransportSettlement(transportAmounts),
+        note: "-",
+      },
+      {
+        label: CATEGORY_LABEL.LODGING,
+        count: countOrDash(byCategory.LODGING.length, "건"),
+        total: amountOrDash(sumByCategory.LODGING),
+        settlement: amountOrDash(sumByCategory.LODGING),
+        note: lodgingNote,
+      },
+      {
+        label: "현장사진",
+        count: countOrDash(byCategory.FIELD.length, "건"),
+        total: "-",
+        settlement: "-",
+        note: "-",
+      },
+    ]);
+    w.spacer(4);
+    if (trip.autoSettlement) {
+      w.text(`전체 합계   ${totalAmount.toLocaleString("ko-KR")}`, {
+        size: 15,
+        bold: true,
+        color: COLOR_ACCENT,
+        gap: 28,
+      });
+    } else {
+      w.text("자동정산 미사용 - 담당자가 제출 서류를 확인해 금액을 확정합니다.", {
+        size: 12,
+        bold: true,
+        color: COLOR_ACCENT,
+        gap: 28,
+      });
+    }
   }
   w.hr();
 
@@ -452,7 +526,11 @@ export async function assembleTripPdf(tripId: string): Promise<Blob> {
     w.text(`현장사진 (${byCategory.FIELD.length}건)`, { size: 13, bold: true, gap: 20 });
     for (const [i, r] of byCategory.FIELD.entries()) {
       w.ensureSpace(30);
-      w.text(`${i + 1}. ${formatDateTime(r.createdAt)}`, { size: 10.5, color: COLOR_MUTED, gap: 15 });
+      // "네이버지도 인증하기"로 만든 항목은 verdictMessage에 "날짜 시간 주소"가 이미 합쳐져
+      // 있다(ReceiptManager.tsx verifyLocation) - 그 경우만 보여준다. 일반 현장사진은
+      // createdAt이 실제 촬영 시각이 아니라 "이 앱에 등록한 시각"이라(출장 종료 후 나중에
+      // 올리는 경우도 있어) 오히려 오해를 줄 수 있어 번호만 남긴다(2026-08-11, 사용자 요청).
+      w.text(r.verdictMessage ? `${i + 1}. ${r.verdictMessage}` : `${i + 1}.`, { size: 10.5, color: COLOR_MUTED, gap: 15 });
       for (const img of r.images) {
         await w.image(img.id);
       }
