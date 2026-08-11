@@ -18,6 +18,7 @@ export default function TransportPage() {
           <CategoryPageHeader tripId={id} icon={<IconTransport className="size-12" />} title="교통" />
           <TransportTabs
             tripId={id}
+            settlementMode={trip.settlementMode}
             autoSettlement={trip.autoSettlement}
             grade={trip.grade}
             tripStartDate={trip.startDate}
