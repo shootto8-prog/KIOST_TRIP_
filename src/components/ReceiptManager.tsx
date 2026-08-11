@@ -19,6 +19,17 @@ import { sumAcceptedLodging } from "@/lib/tripSummaryLocal";
 import { tripTotalDays, exceedsLodgingIntranetThreshold } from "@/lib/settlementFormat";
 import TransportRoutePicker, { resolveRouteFare, type RouteSelection } from "./TransportRoutePicker";
 import type { PositionGrade, SettlementMode } from "@/lib/localDb";
+import { useLocale, useT } from "@/lib/i18n/LanguageProvider";
+import type { Locale } from "@/lib/i18n/locale";
+import {
+  unknownFileTypeError,
+  registerPhotosLabel,
+  registeredReceiptsHeading,
+  recognizedByModel,
+  formatOcrDate,
+  formatOcrAmount,
+  describeUploadError,
+} from "@/lib/i18n/messages/receiptManager";
 
 export type { ReceiptItem };
 
@@ -37,24 +48,6 @@ function buildRouteVerdictMessage(sel: RouteSelection): string {
   let message = parts.join(" · ");
   if (sel.rent || sel.carpool) message += " (정액 미적용, 0원 처리)";
   return message;
-}
-
-function formatOcrDate(iso: string | null): string {
-  if (!iso) return "인식 안 됨";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "인식 안 됨";
-  // 보는 사람 기기 타임존과 무관하게 항상 한국 시각으로 표시한다.
-  return d.toLocaleString("ko-KR", {
-    timeZone: "Asia/Seoul",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
-function formatOcrAmount(amount: number | null): string {
-  return amount === null ? "인식 안 됨" : `${amount.toLocaleString("ko-KR")}원`;
 }
 
 /** epoch ms를 <input type="datetime-local">이 요구하는 "YYYY-MM-DDTHH:mm" 문자열로, 항상
@@ -110,10 +103,14 @@ function verdictBannerBgClass(receipt: ReceiptItem, autoSettlement: boolean): st
 
 /** "OOO원" 뒤에 붙이는 짧은 접미사 - 자동정산 미사용이면 뱃지와 같은 단어("확인"/"확인요청")를
  * 그대로 붙여 일관되게 보이게 한다. 판정 자체가 없는 항목(제출)에는 접미사를 붙이지 않는다. */
-function amountSuffix(receipt: ReceiptItem, autoSettlement: boolean): string {
-  if (autoSettlement) return receipt.verdictStatus !== "SUBMITTED" ? " 인정" : "";
-  const label = verdictDisplayLabel(receipt.verdictStatus, false, receipt.category, receipt.transportMode);
-  return label === "제출" ? "" : ` ${label}`;
+function amountSuffix(receipt: ReceiptItem, autoSettlement: boolean, locale: Locale): string {
+  if (autoSettlement) {
+    if (receipt.verdictStatus === "SUBMITTED") return "";
+    return locale === "ko" ? " 인정" : " Approved";
+  }
+  const label = verdictDisplayLabel(receipt.verdictStatus, false, receipt.category, receipt.transportMode, locale);
+  const submittedLabel = locale === "ko" ? "제출" : "Submitted";
+  return label === submittedLabel ? "" : ` ${label}`;
 }
 
 /**
@@ -160,25 +157,6 @@ async function blobToBase64(blob: Blob): Promise<string> {
  * 뭉개지 않고 그대로 보여주게 하는 표식이다(2026-08-11, 아래 설명 참고). */
 class UploadStepError extends Error {}
 
-/**
- * 업로드 실패 원인을 구분해서 보여준다. 예전에는 형식/크기 문제든 통신 문제든 전부
- * "네트워크 오류가 발생했습니다"로 뭉개져, 사용자가 원인을 모른 채 같은 파일로 재시도했다.
- *
- * HEIC/PDF 변환 실패처럼 이미 구체적인 원인 메시지를 만들어 던진 경우(UploadStepError)는
- * 그 메시지를 그대로 보여준다 - 예전엔 여기서 무조건 이 함수가 다시 일반 메시지로 덮어써서,
- * "아이폰 사진(HEIC)을 변환하지 못했습니다" 같은 실제 원인이 화면에 뜨지 못하고 "연결 상태를
- * 확인해 주세요"만 보여 사용자가 원인을 알 수 없었다(2026-08-11 실사용 버그로 발견).
- */
-function describeUploadError(err: unknown): string {
-  if (err instanceof UploadStepError) return err.message;
-  const message = err instanceof Error ? err.message : "";
-  const lower = message.toLowerCase();
-  if (/abort|timeout|시간/.test(lower)) {
-    return "처리 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요.";
-  }
-  return "처리 중 오류가 발생했습니다. 연결 상태를 확인한 뒤 다시 시도해 주세요.";
-}
-
 function VerdictBanner({
   receipt,
   onReanalyze,
@@ -190,18 +168,20 @@ function VerdictBanner({
   reanalyzing: boolean;
   autoSettlement: boolean;
 }) {
+  const t = useT();
+  const { locale } = useLocale();
   return (
     <div className={`rounded-2xl p-4 text-[13px] ${verdictBannerBgClass(receipt, autoSettlement)}`}>
       <div className="flex items-center gap-2">
         <span
           className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${verdictBadgeClass(receipt, autoSettlement)}`}
         >
-          {verdictDisplayLabel(receipt.verdictStatus, autoSettlement, receipt.category, receipt.transportMode)}
+          {verdictDisplayLabel(receipt.verdictStatus, autoSettlement, receipt.category, receipt.transportMode, locale)}
         </span>
         {receipt.verdictAmount !== null && (
           <span className="text-[15px] font-bold text-neutral-900 dark:text-neutral-100">
-            {receipt.verdictAmount.toLocaleString("ko-KR")}원
-            {amountSuffix(receipt, autoSettlement)}
+            {formatOcrAmount(locale, receipt.verdictAmount)}
+            {amountSuffix(receipt, autoSettlement, locale)}
           </span>
         )}
       </div>
@@ -210,17 +190,22 @@ function VerdictBanner({
         // 항상 PENDING) - 직접 입력한 일시를 그대로 잃어버리지 않도록 여기 배너에 보여준다.
         // 판정 결과(인정/불인정 등)와 무관하게, 입력값이 있으면 항상 보여준다.
         <p className="mt-1 text-[12.5px] text-neutral-500 dark:text-neutral-400">
-          입력한 일시: {formatOcrDate(receipt.ocrDateGuess)}
+          {t.receiptManager.inputDatetimePrefix}
+          {formatOcrDate(locale, receipt.ocrDateGuess)}
         </p>
       )}
       {receipt.verdictMessage && (
         // 교통 부분인정 메시지처럼 "N번째 사진: ..." 여러 줄이 올 수 있어 줄바꿈을 살린다.
+        // (이 메시지 자체는 영수증 저장 시점에 고정되는 판정 결과라 아직 한국어 전용이다.)
         <p className="mt-2 whitespace-pre-line text-neutral-700 dark:text-neutral-300">
           {receipt.verdictMessage}
         </p>
       )}
       {receipt.verdictRegulationRef && (
-        <p className="mt-2 text-[11px] text-neutral-400">근거: {receipt.verdictRegulationRef}</p>
+        <p className="mt-2 text-[11px] text-neutral-400">
+          {t.receiptManager.regulationRefPrefix}
+          {receipt.verdictRegulationRef}
+        </p>
       )}
       {RETRYABLE_FAILED_CHECKS.has(receipt.verdictFailedCheck ?? "") && (
         <button
@@ -229,7 +214,7 @@ function VerdictBanner({
           disabled={reanalyzing}
           className="mt-3 w-full rounded-full bg-neutral-900 py-2.5 text-[13px] font-semibold text-white disabled:opacity-50 dark:bg-white dark:text-neutral-900"
         >
-          {reanalyzing ? "다시 인식 중..." : "다시 인식 시도"}
+          {reanalyzing ? t.receiptManager.retrying : t.receiptManager.retry}
         </button>
       )}
     </div>
@@ -261,6 +246,7 @@ function ReceiptImg({
 }
 
 function ImageGallery({ receipt }: { receipt: ReceiptItem }) {
+  const t = useT();
   if (receipt.images.length <= 1) return null;
   return (
     <div className="flex gap-2 overflow-x-auto">
@@ -269,7 +255,7 @@ function ImageGallery({ receipt }: { receipt: ReceiptItem }) {
           key={img.id}
           imageId={img.id}
           variant="thumb"
-          alt="첨부 사진"
+          alt={t.receiptManager.attachedPhotoAlt}
           className="h-20 w-20 shrink-0 rounded-xl object-cover"
         />
       ))}
@@ -290,6 +276,8 @@ function OcrDetailCard({
 }) {
   const [showRaw, setShowRaw] = useState(false);
   const ocrSkipped = receipt.ocrStatus === "PENDING";
+  const t = useT();
+  const { locale } = useLocale();
   return (
     <div className="space-y-3">
       <VerdictBanner receipt={receipt} onReanalyze={onReanalyze} reanalyzing={reanalyzing} autoSettlement={autoSettlement} />
@@ -297,28 +285,30 @@ function OcrDetailCard({
       {!ocrSkipped && (
         <div className="rounded-2xl border border-black/5 bg-neutral-50 p-4 text-[13px] dark:border-white/10 dark:bg-white/5">
           <p className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-neutral-400">
-            인식 결과{" "}
-            {receipt.ocrStatus === "FAILED" && <span className="text-red-500">(인식 실패)</span>}
+            {t.receiptManager.ocrResultHeading}{" "}
+            {receipt.ocrStatus === "FAILED" && <span className="text-red-500">{t.receiptManager.ocrFailedSuffix}</span>}
           </p>
           <dl className="space-y-1.5">
             <div className="flex justify-between gap-3">
-              <dt className="shrink-0 text-neutral-400">상호명</dt>
+              <dt className="shrink-0 text-neutral-400">{t.receiptManager.merchantLabel}</dt>
               <dd className="text-right text-neutral-800 dark:text-neutral-200">
-                {receipt.ocrMerchantGuess ?? "인식 안 됨"}
+                {receipt.ocrMerchantGuess ?? t.receiptManager.amountNotRecognized}
               </dd>
             </div>
             <div className="flex justify-between gap-3">
-              <dt className="shrink-0 text-neutral-400">일시</dt>
+              <dt className="shrink-0 text-neutral-400">{t.receiptManager.datetimeLabel}</dt>
               <dd className="text-right text-neutral-800 dark:text-neutral-200">
-                {formatOcrDate(receipt.ocrDateGuess)}
+                {formatOcrDate(locale, receipt.ocrDateGuess)}
               </dd>
             </div>
             <div className="flex justify-between gap-3">
               <dt className="shrink-0 text-neutral-400">
-                {receipt.category === "TRANSPORT" && receipt.images.length > 1 ? "인식 합계금액" : "금액"}
+                {receipt.category === "TRANSPORT" && receipt.images.length > 1
+                  ? t.receiptManager.ocrTotalAmountLabel
+                  : t.receiptManager.amountLabel}
               </dt>
               <dd className="text-right font-semibold text-neutral-900 dark:text-neutral-100">
-                {formatOcrAmount(receipt.ocrAmountGuess)}
+                {formatOcrAmount(locale, receipt.ocrAmountGuess)}
               </dd>
             </div>
           </dl>
@@ -329,7 +319,7 @@ function OcrDetailCard({
                 onClick={() => setShowRaw((v) => !v)}
                 className="mt-3 text-[12px] font-medium text-brand dark:text-brand-light"
               >
-                {showRaw ? "원문 텍스트 숨기기" : "원문 텍스트 전체 보기"}
+                {showRaw ? t.receiptManager.hideRawText : t.receiptManager.showRawText}
               </button>
               {showRaw && (
                 <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap rounded-xl bg-black/5 p-3 text-[12px] leading-relaxed text-neutral-600 dark:bg-white/10 dark:text-neutral-300">
@@ -339,12 +329,10 @@ function OcrDetailCard({
             </>
           )}
           {!receipt.ocrText && receipt.ocrStatus === "FAILED" && (
-            <p className="mt-3 text-[12px] text-neutral-400">
-              텍스트 인식에 실패했습니다. 사진이 흐리거나 모델 호출에 문제가 있을 수 있습니다.
-            </p>
+            <p className="mt-3 text-[12px] text-neutral-400">{t.receiptManager.ocrTextFailed}</p>
           )}
           {receipt.ocrModel && (
-            <p className="mt-3 text-[11px] text-neutral-400">{receipt.ocrModel}로 인식됨</p>
+            <p className="mt-3 text-[11px] text-neutral-400">{recognizedByModel(locale, receipt.ocrModel)}</p>
           )}
         </div>
       )}
@@ -391,6 +379,8 @@ export default function ReceiptManager({
   tripStops: TripStopInput[];
   onChange?: () => void;
 }) {
+  const t = useT();
+  const { locale } = useLocale();
   const receipts = initialReceipts;
   const [queue, setQueue] = useState<QueuedFile[]>([]);
   const [uploading, setUploading] = useState(false);
@@ -499,12 +489,12 @@ export default function ReceiptManager({
     if (needsManualAmount) {
       parsedAmount = Number(manualAmount);
       if (!manualAmount.trim() || !Number.isFinite(parsedAmount) || parsedAmount <= 0) {
-        setError("금액을 올바르게 입력해 주세요.");
+        setError(t.receiptManager.errAmountInvalid);
         return;
       }
     }
     if (needsManualDatetime && !manualDatetime.trim()) {
-      setError("결제 일시를 입력해 주세요.");
+      setError(t.receiptManager.errDatetimeRequired);
       return;
     }
     setUploading(true);
@@ -520,7 +510,7 @@ export default function ReceiptManager({
       for (const q of queue) {
         const contentType = resolveContentType(q.file);
         if (!contentType) {
-          setError(`"${q.file.name}"의 파일 형식을 알 수 없습니다. JPG, PNG, HEIC, PDF 파일로 다시 선택해 주세요.`);
+          setError(unknownFileTypeError(locale, q.file.name));
           setUploading(false);
           return;
         }
@@ -528,13 +518,13 @@ export default function ReceiptManager({
           const bytes = new Uint8Array(await q.file.arrayBuffer());
           const pages = await renderAllPdfPagesToPng(bytes).catch((err) => {
             console.error("PDF 변환 실패:", err);
-            throw new UploadStepError("PDF 파일을 이미지로 변환하지 못했습니다. 파일이 손상되었거나 지원되지 않는 형식일 수 있습니다.");
+            throw new UploadStepError(t.receiptManager.errPdfConvertFailed);
           });
           converted.push(...pages);
         } else if (isHeic(contentType, q.file.name)) {
           const jpeg = await heicToJpeg(q.file).catch((err) => {
             console.error("HEIC 변환 실패:", err);
-            throw new UploadStepError("아이폰 사진(HEIC)을 변환하지 못했습니다. 파일이 손상되었거나 지원되지 않는 형식일 수 있습니다.");
+            throw new UploadStepError(t.receiptManager.errHeicConvertFailed);
           });
           converted.push(needsCameraStamp(q) ? await stampDateTime(jpeg, new Date(q.capturedAt)) : jpeg);
         } else {
@@ -656,9 +646,7 @@ export default function ReceiptManager({
         if (!analyzeRes.ok || !analyzeData?.analysis) {
           setError(
             analyzeData?.error ??
-              (analyzeRes.status === 504
-                ? "처리 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요."
-                : "업로드에 실패했습니다. 잠시 후 다시 시도해 주세요.")
+              (analyzeRes.status === 504 ? t.receiptManager.errTimeout : t.receiptManager.errUploadFailed)
           );
           setUploading(false);
           return;
@@ -675,7 +663,7 @@ export default function ReceiptManager({
       setUploading(false);
       onChange?.();
     } catch (err) {
-      setError(describeUploadError(err));
+      setError(describeUploadError(locale, err, (e) => e instanceof UploadStepError));
       setUploading(false);
     }
   }
@@ -690,7 +678,7 @@ export default function ReceiptManager({
       const photosPayload = await Promise.all(
         receipt.images.map(async (img) => {
           const stored = await getReceiptImageBytes(img.id, "full");
-          if (!stored) throw new Error("저장된 사진을 찾을 수 없습니다.");
+          if (!stored) throw new Error(t.receiptManager.errStoredImageMissing);
           return [{ base64: await blobToBase64(new Blob([stored.bytes])), mimeType: stored.mimeType }];
         })
       );
@@ -734,13 +722,11 @@ export default function ReceiptManager({
       } else {
         setError(
           data?.error ??
-            (res.status === 504
-              ? "인식에 시간이 너무 오래 걸렸습니다. 잠시 후 다시 시도해 주세요."
-              : "다시 인식하지 못했습니다. 잠시 후 다시 시도해 주세요.")
+            (res.status === 504 ? t.receiptManager.errReanalyzeTimeout : t.receiptManager.errReanalyzeFailed)
         );
       }
     } catch {
-      setError("네트워크 오류로 다시 인식하지 못했습니다. 연결 상태를 확인해 주세요.");
+      setError(t.receiptManager.errReanalyzeNetwork);
     } finally {
       setReanalyzingId(null);
     }
@@ -757,12 +743,15 @@ export default function ReceiptManager({
     try {
       const coords = await getCurrentCoords();
       if (!coords) {
-        setError("위치를 확인할 수 없습니다. 위치 권한을 허용했는지 확인한 뒤 다시 시도해 주세요.");
+        setError(t.receiptManager.errLocationUnavailable);
         return;
       }
       const { address, imageBlob } = await fetchLocationSnapshot(coords.lat, coords.lng);
       // "날짜 시간 주소" 순서로 한 줄에 합쳐 보여준다(2026-08-11, 사용자 요청) - 화면(그리드
       // 캡션/상세보기)과 PDF가 이 한 값을 그대로 가져다 쓰므로 별도로 맞출 필요가 없다.
+      // 이 메시지는 영수증 생성 시점에 verdictMessage로 저장되는 값이라(2026-08-11 영어 버전
+      // 작업 시점 기준) 아직 한국어 전용이다 - 저장 후 언어를 바꿔도 과거 기록은 그대로 남는
+      // 구조라 여기만 영어로 바꾸면 오히려 "일부만 번역된 상태"가 저장돼 버린다.
       const verifiedAt = formatDateTime(new Date());
       const verdictMessage = address ? `${verifiedAt} ${address}` : `${verifiedAt} 네이버지도 위치 인증`;
       const created = await createReceipt({
@@ -789,7 +778,7 @@ export default function ReceiptManager({
       onChange?.();
     } catch (err) {
       console.error("네이버지도 인증 실패:", err);
-      setError(err instanceof Error ? err.message : "위치 인증에 실패했습니다. 잠시 후 다시 시도해 주세요.");
+      setError(err instanceof Error ? err.message : t.receiptManager.errLocationFailed);
     } finally {
       setVerifyingLocation(false);
     }
@@ -801,29 +790,29 @@ export default function ReceiptManager({
       await deleteReceipt(id);
       onChange?.();
     } catch {
-      setError("영수증을 삭제하지 못했습니다.");
+      setError(t.receiptManager.errDeleteFailed);
     }
   }
 
   const selectedReceipt = receipts.find((r) => r.id === selectedId) ?? null;
 
   const hint = needsRouteSelection
-    ? "정액 지급 대상입니다. 인트라넷 간편입력을 위해 구간을 선택해주세요."
+    ? t.receiptManager.hintRouteSelection
     : flatRate
-    ? "정액정산 대상입니다. 별도 금액 확인 없이 사진 첨부만으로 인정됩니다."
+    ? t.receiptManager.hintFlatRate
     : !autoSettlement
     ? category === "FIELD"
-      ? "증빙용 사진입니다. 첨부하면 제출 처리됩니다."
-      : "사용자 입력정보에 따라 검토합니다"
+      ? t.receiptManager.hintManualField
+      : t.receiptManager.hintManualGeneric
     : category === "FIELD"
-    ? "판정 대상이 아닌 증빙용 사진입니다. 첨부하면 바로 인정 처리됩니다."
+    ? t.receiptManager.hintAutoField
     : category === "TRANSPORT"
-    ? "왕복 등 결제가 여러 건이면 사진을 각각 추가해 주세요 - 사진별로 인식한 금액을 자동으로 합산합니다."
+    ? t.receiptManager.hintTransport
     : isBreakfast
     ? null
     : category === "LODGING"
-    ? "여러 장이면 같은 영수증의 다음 페이지로 보고 합쳐서 인식합니다. 서로 다른 숙소·숙박 건은 한 번에 올리지 말고 건별로 따로 등록해 주세요."
-    : "여러 장이면 같은 영수증의 다음 페이지로 보고 합쳐서 인식합니다.";
+    ? t.receiptManager.hintLodging
+    : t.receiptManager.hintMultiPage;
 
   return (
     <div className="space-y-4">
@@ -848,7 +837,7 @@ export default function ReceiptManager({
           시스템도 건별이 아니라 "출장 전체 숙박비 ÷ 전체 박수"만 본다(2026-08-10, 사용자 확인). */}
       {lodgingExceedsIntranetThreshold && (
         <p className="rounded-2xl bg-amber-500/10 p-3 text-[13px] font-medium text-amber-600 dark:text-amber-400">
-          인트라넷 내 숙박비 여비정산을 작성해주세요
+          {t.receiptManager.lodgingIntranetWarning}
         </p>
       )}
 
@@ -861,7 +850,7 @@ export default function ReceiptManager({
               className="shadow-soft flex flex-1 items-center justify-center gap-2 rounded-[20px] border border-black/5 bg-white/80 py-4 text-[15px] font-medium text-neutral-700 active:scale-[0.98] dark:border-white/10 dark:bg-white/[0.04] dark:text-neutral-200"
             >
               <IconPhoto />
-              사진 선택(갤러리)
+              {t.receiptManager.galleryButton}
             </button>
             <button
               type="button"
@@ -869,13 +858,11 @@ export default function ReceiptManager({
               className="shadow-glow flex flex-1 items-center justify-center gap-2 rounded-[20px] bg-brand py-4 text-[15px] font-semibold text-white active:scale-[0.98]"
             >
               <IconCamera />
-              카메라로 촬영
+              {t.receiptManager.cameraButton}
             </button>
           </div>
           {isBreakfast && (
-            <p className="mt-2 text-left text-[12px] text-neutral-400">
-              출장 첫날 조식비를 신청하는 경우, 사진촬영 또는 증빙사진을 올려주세요
-            </p>
+            <p className="mt-2 text-left text-[12px] text-neutral-400">{t.receiptManager.breakfastHint}</p>
           )}
           {category === "FIELD" && naverMapEnabled && (
             <button
@@ -887,7 +874,7 @@ export default function ReceiptManager({
               className="shadow-glow mt-3 flex w-full items-center justify-center gap-2 rounded-[20px] bg-[#03C75A] py-4 text-[15px] font-semibold text-white active:scale-[0.98] disabled:opacity-50"
             >
               <IconMap />
-              {verifyingLocation ? "위치 확인 중..." : "네이버지도 인증하기"}
+              {verifyingLocation ? t.receiptManager.naverMapVerifying : t.receiptManager.naverMapButton}
             </button>
           )}
         </div>
@@ -910,12 +897,12 @@ export default function ReceiptManager({
                   </div>
                 ) : (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={q.url} alt="선택한 사진" className="h-full w-full object-cover" />
+                  <img src={q.url} alt={t.receiptManager.selectedPhotoAlt} className="h-full w-full object-cover" />
                 )}
                 <button
                   type="button"
                   onClick={() => removeQueued(q.id)}
-                  aria-label="사진 제거"
+                  aria-label={t.receiptManager.removePhotoAria}
                   className="absolute right-1 top-1 flex size-5 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur"
                 >
                   <IconTrash className="size-3" />
@@ -927,7 +914,7 @@ export default function ReceiptManager({
                 <button
                   type="button"
                   onClick={() => galleryInputRef.current?.click()}
-                  aria-label="사진 추가(갤러리)"
+                  aria-label={t.receiptManager.addPhotoGalleryAria}
                   className="flex size-20 items-center justify-center rounded-xl border border-dashed border-black/15 text-neutral-400 dark:border-white/20"
                 >
                   <IconPlus className="size-5" />
@@ -935,7 +922,7 @@ export default function ReceiptManager({
                 <button
                   type="button"
                   onClick={() => cameraInputRef.current?.click()}
-                  aria-label="사진 추가(카메라)"
+                  aria-label={t.receiptManager.addPhotoCameraAria}
                   className="flex size-20 items-center justify-center rounded-xl border border-dashed border-black/15 text-neutral-400 dark:border-white/20"
                 >
                   <IconCamera className="size-5" />
@@ -960,13 +947,13 @@ export default function ReceiptManager({
               {needsManualAmount && (
                 <div>
                   <label className="mb-1 block text-[12.5px] font-medium text-neutral-600 dark:text-neutral-300">
-                    금액
+                    {t.receiptManager.amountLabel}
                   </label>
                   <input
                     type="number"
                     inputMode="numeric"
                     min={1}
-                    placeholder="예: 15000"
+                    placeholder={t.receiptManager.amountPlaceholder}
                     value={manualAmount}
                     onChange={(e) => setManualAmount(e.target.value)}
                     className="w-full rounded-xl border border-black/10 bg-white px-3 py-2.5 text-[15px] text-neutral-900 outline-none focus:border-brand dark:border-white/15 dark:bg-white/5 dark:text-neutral-100"
@@ -976,7 +963,7 @@ export default function ReceiptManager({
               {needsManualDatetime && (
                 <div>
                   <label className="mb-1 block text-[12.5px] font-medium text-neutral-600 dark:text-neutral-300">
-                    결제 일시
+                    {t.receiptManager.paymentDatetimeLabel}
                   </label>
                   <input
                     type="datetime-local"
@@ -997,7 +984,7 @@ export default function ReceiptManager({
               disabled={uploading}
               className="flex-1 rounded-full border border-black/10 py-3 text-[15px] font-medium text-neutral-600 disabled:opacity-50 dark:border-white/15 dark:text-neutral-300"
             >
-              취소
+              {t.receiptManager.cancel}
             </button>
             <button
               type="button"
@@ -1005,7 +992,7 @@ export default function ReceiptManager({
               disabled={uploading}
               className="shadow-glow flex-1 rounded-full bg-brand py-3 text-[15px] font-semibold text-white disabled:opacity-50"
             >
-              {uploading ? "처리 중..." : `사진 ${queue.length}장 등록`}
+              {uploading ? t.receiptManager.processing : registerPhotosLabel(locale, queue.length)}
             </button>
           </div>
         </div>
@@ -1033,7 +1020,7 @@ export default function ReceiptManager({
               disabled={uploading}
               className="shadow-glow mt-3 w-full rounded-full bg-brand py-3 text-[15px] font-semibold text-white disabled:opacity-50"
             >
-              {uploading ? "처리 중..." : "구간 등록"}
+              {uploading ? t.receiptManager.processing : t.receiptManager.registerRoute}
             </button>
           )}
         </div>
@@ -1045,8 +1032,7 @@ export default function ReceiptManager({
       {receipts.length > 0 && (
         <div>
           <h3 className="px-1 text-[13px] font-medium uppercase tracking-wide text-neutral-400">
-            등록된 영수증 ({receipts.length})
-            {autoSettlement ? " · 탭하면 인식 결과를 볼 수 있어요" : " · 탭하면 상세 사진을 볼 수 있어요"}
+            {registeredReceiptsHeading(locale, receipts.length, autoSettlement)}
           </h3>
           <div className="mt-2 grid grid-cols-3 gap-2">
             {receipts.map((r) => (
@@ -1064,7 +1050,7 @@ export default function ReceiptManager({
                   <ReceiptImg
                     imageId={r.images[0].id}
                     variant="thumb"
-                    alt="등록된 영수증"
+                    alt={t.receiptManager.registeredReceiptAlt}
                     className="h-full w-full object-cover"
                   />
                 ) : (
@@ -1080,11 +1066,11 @@ export default function ReceiptManager({
                 <span
                   className={`absolute left-1.5 top-1.5 rounded-full px-2 py-0.5 text-[10px] font-semibold ${verdictBadgeClass(r, autoSettlement)}`}
                 >
-                  {verdictDisplayLabel(r.verdictStatus, autoSettlement, r.category, r.transportMode)}
+                  {verdictDisplayLabel(r.verdictStatus, autoSettlement, r.category, r.transportMode, locale)}
                 </span>
                 {r.verdictAmount !== null ? (
                   <span className="absolute inset-x-0 bottom-0 truncate bg-black/55 px-2 py-1 text-[11px] font-medium text-white">
-                    {r.verdictAmount.toLocaleString("ko-KR")}원
+                    {formatOcrAmount(locale, r.verdictAmount)}
                   </span>
                 ) : (
                   // 현장사진 중 "네이버지도 인증하기"로 만든 항목은 amount가 없는 대신 날짜/시간/
@@ -1110,7 +1096,7 @@ export default function ReceiptManager({
                       removeReceipt(r.id);
                     }
                   }}
-                  aria-label="영수증 삭제"
+                  aria-label={t.receiptManager.deleteReceiptAria}
                   className="absolute right-1.5 top-1.5 flex size-7 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur transition hover:bg-red-500/90"
                 >
                   <IconTrash className="size-3.5" />

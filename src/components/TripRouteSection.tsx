@@ -2,8 +2,8 @@
 
 import { useState } from "react";
 import TripForm from "./TripForm";
-import { formatDate, STOP_TYPE_LABEL } from "@/lib/format";
-import { useT } from "@/lib/i18n/LanguageProvider";
+import { formatDate, stopTypeLabel } from "@/lib/format";
+import { useLocale, useT } from "@/lib/i18n/LanguageProvider";
 
 type StopData = {
   id: string;
@@ -26,6 +26,7 @@ export default function TripRouteSection({
 }) {
   const [editing, setEditing] = useState(false);
   const t = useT();
+  const { locale } = useLocale();
 
   if (editing) {
     return (
@@ -61,7 +62,7 @@ export default function TripRouteSection({
         </button>
       </div>
       <p className="mt-2 text-[13.5px] font-medium text-neutral-500">
-        {formatDate(startDate)} ~ {formatDate(endDate)}
+        {formatDate(startDate, locale)} ~ {formatDate(endDate, locale)}
       </p>
       {(() => {
         const departure = stops.find((s) => s.type === "DEPARTURE");
@@ -70,14 +71,14 @@ export default function TripRouteSection({
         return (
           <div className="mt-3 flex items-center gap-2">
             <div className="min-w-0 flex-1">
-              <p className="text-[11px] font-medium text-neutral-400">{STOP_TYPE_LABEL.DEPARTURE}</p>
+              <p className="text-[11px] font-medium text-neutral-400">{stopTypeLabel("DEPARTURE", locale)}</p>
               <p className="truncate text-[15px] font-semibold text-neutral-900 dark:text-neutral-100">
                 {departure?.location ?? "-"}
               </p>
             </div>
             <span className="shrink-0 text-neutral-300 dark:text-neutral-600">→</span>
             <div className="min-w-0 flex-1 text-right">
-              <p className="text-[11px] font-medium text-neutral-400">{STOP_TYPE_LABEL.ARRIVAL}</p>
+              <p className="text-[11px] font-medium text-neutral-400">{stopTypeLabel("ARRIVAL", locale)}</p>
               <p className="truncate text-[15px] font-semibold text-neutral-900 dark:text-neutral-100">
                 {arrival?.location ?? "-"}
               </p>

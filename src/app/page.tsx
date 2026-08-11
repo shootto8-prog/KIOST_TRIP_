@@ -8,11 +8,12 @@ import ThemeToggle from "@/components/ThemeToggle";
 import LanguageToggle from "@/components/LanguageToggle";
 import { IconBreakfast, IconTransport, IconLodging, IconFieldPhoto } from "@/components/icons";
 import { useTripList } from "@/lib/useLocalTripList";
-import { useT } from "@/lib/i18n/LanguageProvider";
+import { useLocale, useT } from "@/lib/i18n/LanguageProvider";
 
 export default function HomePage() {
   const { status, active: activeTrips, completed: completedTrips, refresh } = useTripList();
   const t = useT();
+  const { locale } = useLocale();
 
   return (
     <main className="space-y-5">
@@ -59,7 +60,7 @@ export default function HomePage() {
                           {departure?.location ?? "?"} → {arrival?.location ?? "?"}
                         </p>
                         <p className="mt-0.5 text-[13px] text-neutral-500">
-                          {formatDate(trip.startDate)} ~ {formatDate(trip.endDate)}
+                          {formatDate(trip.startDate, locale)} ~ {formatDate(trip.endDate, locale)}
                         </p>
                       </Link>
                       <div className="mt-3 grid grid-cols-4 gap-2">
@@ -121,7 +122,7 @@ export default function HomePage() {
                             {departure?.location ?? "?"} → {arrival?.location ?? "?"}
                           </p>
                           <p className="mt-0.5 text-[13px] text-neutral-500">
-                            {formatDate(trip.startDate)} ~ {formatDate(trip.endDate)}
+                            {formatDate(trip.startDate, locale)} ~ {formatDate(trip.endDate, locale)}
                           </p>
                         </Link>
                         <TripDeleteButton tripId={trip.id} kind="delete" onDeleted={refresh} />

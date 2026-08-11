@@ -2,9 +2,10 @@
 
 import { useMemo, useState } from "react";
 import ReceiptManager from "./ReceiptManager";
-import { TRANSPORT_MODE_LABEL } from "@/lib/format";
+import { transportModeLabel } from "@/lib/format";
 import { useReceipts } from "@/lib/useLocalReceipts";
 import type { TransportMode, LocalStop, PositionGrade, SettlementMode } from "@/lib/localDb";
+import { useLocale } from "@/lib/i18n/LanguageProvider";
 
 const MODES: TransportMode[] = ["SHIP", "AIR", "RAIL", "PRIVATE_CAR", "BUS"];
 
@@ -26,6 +27,7 @@ export default function TransportTabs({
   tripStops: LocalStop[];
 }) {
   const [mode, setMode] = useState<TransportMode>("SHIP");
+  const { locale } = useLocale();
   // TRANSPORT 전체를 한 번만 읽어와서 탭별로는 클라이언트에서 필터링한다 - 예전엔 서버가
   // 미리 5개 배열로 나눠 내려줬지만, 이제 이 컴포넌트가 직접 데이터를 갖고 있으니 프롭 드릴링을
   // 한 단계 줄일 수 있다.
@@ -44,7 +46,7 @@ export default function TransportTabs({
               mode === m ? "bg-white text-neutral-900 shadow-sm dark:bg-white/90" : "text-neutral-500"
             }`}
           >
-            {TRANSPORT_MODE_LABEL[m]}
+            {transportModeLabel(m, locale)}
           </button>
         ))}
       </div>
