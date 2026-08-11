@@ -47,9 +47,6 @@ export default function MealDeductionStepper({
         <p className="text-[14px] font-semibold text-neutral-900 dark:text-neutral-100">
           식비공제
         </p>
-        <p className="mt-0.5 text-[12px] text-neutral-400">
-          이미 제공된 식사 수만큼 선택하면 정산서에서 1식당 15,000원씩 빠집니다.
-        </p>
       </div>
       <div className="flex shrink-0 items-center gap-2">
         <button
