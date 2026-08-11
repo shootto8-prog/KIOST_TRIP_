@@ -102,6 +102,7 @@ export default function DateYMDInput({
           onChange={(e) => set("y", e.target.value, 4)}
           className={`w-12 shrink-0 ${inputClass}`}
         />
+        <span className="shrink-0 text-neutral-400">.</span>
         <input
           type="text"
           inputMode="numeric"
@@ -110,6 +111,7 @@ export default function DateYMDInput({
           onChange={(e) => set("m", e.target.value, 2)}
           className={`w-8 shrink-0 ${inputClass}`}
         />
+        <span className="shrink-0 text-neutral-400">.</span>
         <input
           type="text"
           inputMode="numeric"
@@ -118,6 +120,7 @@ export default function DateYMDInput({
           onChange={(e) => set("d", e.target.value, 2)}
           className={`w-8 shrink-0 ${inputClass}`}
         />
+        <span className="shrink-0 text-neutral-400">.</span>
 
         <button
           type="button"
