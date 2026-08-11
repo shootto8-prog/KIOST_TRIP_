@@ -6,6 +6,7 @@ import { IconPlus, IconTrash } from "./icons";
 import DateYMDInput from "./DateYMDInput";
 import { createTrip, updateTrip, type PositionGrade, type SettlementMode } from "@/lib/localDb";
 import { POSITION_GRADE_LABEL } from "@/lib/transportFares";
+import { useT } from "@/lib/i18n/LanguageProvider";
 
 type Stop = {
   key: string;
@@ -71,6 +72,7 @@ export default function TripForm({
   const [grade, setGrade] = useState<PositionGrade | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const t = useT();
 
   // 출장기간 종료일을 아직 안 만졌으면(비어 있으면) 시작일과 같은 값으로 미리 채워둔다 -
   // 당일 출장이 흔해서, 시작일만 넣으면 바로 완성되고, 여러 날이면 그냥 종료일을 고쳐 쓰면
@@ -107,19 +109,19 @@ export default function TripForm({
     setError(null);
 
     if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) || !/^\d{4}-\d{2}-\d{2}$/.test(endDate)) {
-      setError("출장 시작일과 종료일을 연도(4자리)까지 포함해, 실제로 있는 날짜로 입력해 주세요.");
+      setError(t.tripForm.errorDateRequired);
       return;
     }
     if (endDate < startDate) {
-      setError("종료일이 시작일보다 빠를 수 없습니다.");
+      setError(t.tripForm.errorEndBeforeStart);
       return;
     }
     if (stops.some((s) => !s.location.trim())) {
-      setError("모든 경로 항목에 장소를 입력해 주세요.");
+      setError(t.tripForm.errorLocationRequired);
       return;
     }
     if (!isEdit && mode === "DETAILED" && !grade) {
-      setError("책임급 / 선임급 이하 중 하나를 선택해 주세요.");
+      setError(t.tripForm.errorGradeRequired);
       return;
     }
 
@@ -142,7 +144,7 @@ export default function TripForm({
         router.push(`/trip/${trip.id}`);
       }
     } catch {
-      setError("저장에 실패했습니다.");
+      setError(t.tripForm.errorSaveFailed);
       setSubmitting(false);
     }
   }
@@ -152,11 +154,7 @@ export default function TripForm({
     STOPOVER: "bg-neutral-500/10 text-neutral-500 dark:text-neutral-400",
     ARRIVAL: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
   };
-  const badgeLabel: Record<Stop["type"], string> = {
-    DEPARTURE: "출발지",
-    STOPOVER: "경유지",
-    ARRIVAL: "목적지",
-  };
+  const badgeLabel = t.tripForm.stopLabel;
 
   return (
     <form
@@ -164,16 +162,14 @@ export default function TripForm({
       className="shadow-glow rounded-[28px] border border-brand/10 bg-white/90 p-5 backdrop-blur dark:border-white/10 dark:bg-white/[0.04] sm:p-6"
     >
       <h2 className="text-[15px] font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">
-        {isEdit ? "출장 정보 변경" : "출장정보"}
+        {isEdit ? t.tripForm.titleEdit : t.tripForm.titleNew}
       </h2>
       {isEdit && (
-        <p className="mt-1 text-[12.5px] text-neutral-500">
-          출장이 연장·단축되거나 경유지가 바뀐 경우 여기서 수정하세요.
-        </p>
+        <p className="mt-1 text-[12.5px] text-neutral-500">{t.tripForm.editHint}</p>
       )}
 
       <div className="mt-4 rounded-2xl border border-black/5 bg-neutral-50 p-3 dark:border-white/10 dark:bg-white/5">
-        <p className="text-[13px] font-medium text-neutral-500">출장기간</p>
+        <p className="text-[13px] font-medium text-neutral-500">{t.tripForm.period}</p>
         <div className="mt-2 flex flex-nowrap items-center gap-1 overflow-x-auto">
           <DateYMDInput value={startDate} onChange={handleStartDateChange} />
           <span className="shrink-0 text-neutral-400">~</span>
@@ -191,13 +187,13 @@ export default function TripForm({
                 mode === "SIMPLE" ? "text-brand dark:text-brand-light" : "text-neutral-400"
               }`}
             >
-              간편모드
+              {t.tripForm.simpleMode}
             </button>
             <button
               type="button"
               role="switch"
               aria-checked={mode === "DETAILED"}
-              aria-label="간편모드 / 상세모드 전환"
+              aria-label={t.tripForm.modeToggleAria}
               onClick={() => setMode((m) => (m === "SIMPLE" ? "DETAILED" : "SIMPLE"))}
               className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors ${
                 mode === "DETAILED" ? "bg-brand" : "bg-neutral-300 dark:bg-white/20"
@@ -216,13 +212,11 @@ export default function TripForm({
                 mode === "DETAILED" ? "text-brand dark:text-brand-light" : "text-neutral-400"
               }`}
             >
-              상세모드
+              {t.tripForm.detailedMode}
             </button>
           </div>
           <p className="mt-2 text-[12px] text-neutral-400">
-            {mode === "SIMPLE"
-              ? "조식, 교통, 숙박영수증, 현장사진을 한 곳에 모아 출장종료 후 이메일로 발송합니다"
-              : "AI 자동정산(선택사항)과 인트라넷과 동일한 정산금액을 산출하여 출장종료 후 발송되는 레포트 내역을 그대로 복사하여 복명할 수 있습니다"}
+            {mode === "SIMPLE" ? t.tripForm.simpleModeDesc : t.tripForm.detailedModeDesc}
           </p>
 
           {mode === "DETAILED" && (
@@ -230,13 +224,13 @@ export default function TripForm({
               <div>
                 <div className="flex items-center justify-between gap-3">
                   <p className="text-[14px] font-semibold text-neutral-900 dark:text-neutral-100">
-                    자동정산 (AI 판정)
+                    {t.tripForm.autoSettlementTitle}
                   </p>
                   <button
                     type="button"
                     role="switch"
                     aria-checked={autoSettlement}
-                    aria-label="자동정산 사용 여부"
+                    aria-label={t.tripForm.autoSettlementAria}
                     onClick={() => setAutoSettlement((v) => !v)}
                     className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors ${
                       autoSettlement ? "bg-brand" : "bg-neutral-300 dark:bg-white/20"
@@ -250,14 +244,14 @@ export default function TripForm({
                   </button>
                 </div>
                 <p className="mt-1 text-[12px] text-neutral-400">
-                  {autoSettlement
-                    ? "외부 LLM을 이용하여 AI가 인정/불인정을 판정합니다. 민감정보가 노출되지 않도록 유의해주세요"
-                    : "AI 판정 없이 증빙서류만 제출합니다."}
+                  {autoSettlement ? t.tripForm.autoSettlementOnDesc : t.tripForm.autoSettlementOffDesc}
                 </p>
               </div>
 
               <div className="flex items-center justify-between gap-3 border-t border-black/5 pt-3 dark:border-white/10">
-                <p className="text-[14px] font-semibold text-neutral-900 dark:text-neutral-100">직급</p>
+                <p className="text-[14px] font-semibold text-neutral-900 dark:text-neutral-100">
+                  {t.tripForm.positionGradeTitle}
+                </p>
                 <div className="flex shrink-0 rounded-full bg-neutral-200/70 p-0.5 dark:bg-white/10">
                   {(Object.keys(POSITION_GRADE_LABEL) as PositionGrade[]).map((g) => (
                     <button
@@ -270,13 +264,13 @@ export default function TripForm({
                           : "text-neutral-500 dark:text-neutral-400"
                       }`}
                     >
-                      {POSITION_GRADE_LABEL[g]}
+                      {t.positionGrade[g]}
                     </button>
                   ))}
                 </div>
               </div>
 
-              <p className="text-[11px] text-neutral-400">출장 등록 후에는 둘 다 바꿀 수 없어요.</p>
+              <p className="text-[11px] text-neutral-400">{t.tripForm.lockedHint}</p>
             </div>
           )}
         </div>
@@ -294,7 +288,7 @@ export default function TripForm({
             <input
               type="text"
               required
-              placeholder="장소"
+              placeholder={t.tripForm.locationPlaceholder}
               value={s.location}
               onChange={(e) => updateStop(s.key, { location: e.target.value })}
               className="min-w-0 flex-1 rounded-xl bg-transparent px-2 py-2 text-[15px] text-neutral-900 outline-none placeholder:text-neutral-400 dark:text-neutral-100"
@@ -311,8 +305,8 @@ export default function TripForm({
                 <button
                   type="button"
                   onClick={addStopover}
-                  aria-label="경유지 추가"
-                  title="경유지 추가"
+                  aria-label={t.tripForm.addStopoverAria}
+                  title={t.tripForm.addStopoverAria}
                   className="flex size-9 shrink-0 items-center justify-center rounded-full border border-dashed border-brand/25 text-brand hover:bg-brand/5 dark:border-white/20 dark:text-brand-light"
                 >
                   <IconPlus className="size-4" />
@@ -330,7 +324,7 @@ export default function TripForm({
                 <input
                   type="text"
                   required
-                  placeholder="장소"
+                  placeholder={t.tripForm.locationPlaceholder}
                   value={s.location}
                   onChange={(e) => updateStop(s.key, { location: e.target.value })}
                   className="min-w-0 flex-1 rounded-xl bg-transparent px-2 py-2 text-[15px] text-neutral-900 outline-none placeholder:text-neutral-400 dark:text-neutral-100"
@@ -339,7 +333,7 @@ export default function TripForm({
                   type="button"
                   onClick={() => removeStopover(s.key)}
                   className="shrink-0 rounded-full p-2 text-neutral-400 hover:bg-black/5 hover:text-red-500 dark:hover:bg-white/10"
-                  aria-label="경유지 삭제"
+                  aria-label={t.tripForm.removeStopoverAria}
                 >
                   <IconTrash />
                 </button>
@@ -361,7 +355,7 @@ export default function TripForm({
             disabled={submitting}
             className="flex-1 rounded-2xl border border-black/10 py-3 text-[15px] font-medium text-neutral-600 disabled:opacity-50 dark:border-white/15 dark:text-neutral-300"
           >
-            취소
+            {t.tripForm.cancel}
           </button>
         )}
         <button
@@ -369,7 +363,7 @@ export default function TripForm({
           disabled={submitting}
           className="shadow-glow flex-1 rounded-full bg-brand py-3 text-[15px] font-semibold text-white transition active:scale-[0.99] disabled:opacity-50"
         >
-          {submitting ? "저장 중..." : isEdit ? "변경 사항 저장" : "출장 시작"}
+          {submitting ? t.tripForm.saving : isEdit ? t.tripForm.saveChanges : t.tripForm.startTrip}
         </button>
       </div>
     </form>

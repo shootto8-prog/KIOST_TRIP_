@@ -4,6 +4,7 @@ import { useState } from "react";
 import { updateTrip } from "@/lib/localDb";
 import { tripTotalDays } from "@/lib/settlementFormat";
 import { IconMinus, IconPlus } from "./icons";
+import { useLocale, useT } from "@/lib/i18n/LanguageProvider";
 
 /** 하루 최대 3식(조/중/석)까지만 공제할 수 있다 - 그 이상은 출장 기간을 넘어서는 값이라
  * 의미가 없다(2026-08-11, 사용자 요청. 예: 1일 출장이면 최대 3식). */
@@ -29,6 +30,9 @@ export default function MealDeductionStepper({
 }) {
   const [saving, setSaving] = useState(false);
   const maxCount = MAX_MEALS_PER_DAY * tripTotalDays(tripStartDate, tripEndDate);
+  const t = useT();
+  const { locale } = useLocale();
+  const countText = locale === "ko" ? `${value}${t.mealDeduction.unit}` : `${value} ${t.mealDeduction.unit}${value === 1 ? "" : "s"}`;
 
   async function change(next: number) {
     if (next < 0 || next > maxCount || saving) return;
@@ -45,7 +49,7 @@ export default function MealDeductionStepper({
     <div className="shadow-soft flex items-center justify-between gap-3 rounded-[24px] border border-black/5 bg-white/80 p-4 dark:border-white/10 dark:bg-white/[0.04]">
       <div className="min-w-0">
         <p className="text-[14px] font-semibold text-neutral-900 dark:text-neutral-100">
-          식비공제
+          {t.mealDeduction.title}
         </p>
       </div>
       <div className="flex shrink-0 items-center gap-2">
@@ -53,19 +57,19 @@ export default function MealDeductionStepper({
           type="button"
           onClick={() => change(value - 1)}
           disabled={saving || value <= 0}
-          aria-label="식비공제 1식 줄이기"
+          aria-label={t.mealDeduction.decreaseAria}
           className="flex size-8 items-center justify-center rounded-full bg-neutral-200/70 text-neutral-700 disabled:opacity-40 dark:bg-white/10 dark:text-neutral-200"
         >
           <IconMinus className="size-4" />
         </button>
-        <span className="w-12 text-center text-[15px] font-semibold text-neutral-900 dark:text-neutral-100">
-          {value}식
+        <span className="w-16 text-center text-[15px] font-semibold text-neutral-900 dark:text-neutral-100">
+          {countText}
         </span>
         <button
           type="button"
           onClick={() => change(value + 1)}
           disabled={saving || value >= maxCount}
-          aria-label="식비공제 1식 늘리기"
+          aria-label={t.mealDeduction.increaseAria}
           className="flex size-8 items-center justify-center rounded-full bg-neutral-200/70 text-neutral-700 disabled:opacity-40 dark:bg-white/10 dark:text-neutral-200"
         >
           <IconPlus className="size-4" />

@@ -7,11 +7,13 @@ import LocalDataBoundary from "@/components/LocalDataBoundary";
 import { IconFieldPhoto } from "@/components/icons";
 import { useTrip } from "@/lib/useLocalTrip";
 import { useReceipts } from "@/lib/useLocalReceipts";
+import { useT } from "@/lib/i18n/LanguageProvider";
 
 export default function FieldPhotoPage() {
   const { id } = useParams<{ id: string }>();
   const { status: tripStatus, trip } = useTrip(id);
   const { status: receiptsStatus, receipts, refresh } = useReceipts(id, "FIELD");
+  const t = useT();
 
   return (
     <LocalDataBoundary
@@ -20,7 +22,7 @@ export default function FieldPhotoPage() {
     >
       {trip && (
         <main className="space-y-6">
-          <CategoryPageHeader tripId={id} icon={<IconFieldPhoto className="size-12" />} title="현장사진" />
+          <CategoryPageHeader tripId={id} icon={<IconFieldPhoto className="size-12" />} title={t.categories.field} />
           <ReceiptManager
             tripId={id}
             category="FIELD"

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { searchBusRoutes, searchCarRoutes, searchRailRoutes, type PositionGrade, type RouteSearchResult } from "@/lib/transportFares";
 import { IconTrash, IconPlus } from "./icons";
+import { useT } from "@/lib/i18n/LanguageProvider";
 
 export type RouteSelection = {
   route: string;
@@ -43,6 +44,7 @@ function RouteCard({
   onChange: (next: RouteSelection) => void;
   onRemove: () => void;
 }) {
+  const t = useT();
   return (
     <div className="space-y-2.5 rounded-xl border border-black/10 bg-white p-3 dark:border-white/15 dark:bg-white/5">
       <div className="flex items-center justify-between gap-2">
@@ -52,7 +54,7 @@ function RouteCard({
         <button
           type="button"
           onClick={onRemove}
-          aria-label="구간 삭제"
+          aria-label={t.transportRoutePicker.removeSegmentAria}
           className="flex size-8 shrink-0 items-center justify-center rounded-full text-neutral-400 hover:bg-black/5 hover:text-red-500 dark:hover:bg-white/10"
         >
           <IconTrash className="size-4" />
@@ -67,7 +69,7 @@ function RouteCard({
             onChange={(e) => onChange({ ...value, roundTrip: e.target.checked })}
             className="size-4 rounded border-black/20 text-brand focus:ring-brand dark:border-white/30"
           />
-          왕복
+          {t.transportRoutePicker.roundTrip}
         </label>
 
         {transportMode === "PRIVATE_CAR" && (
@@ -79,7 +81,7 @@ function RouteCard({
                 onChange={(e) => onChange({ ...value, rent: e.target.checked })}
                 className="size-4 rounded border-black/20 text-brand focus:ring-brand dark:border-white/30"
               />
-              렌트/공용차량
+              {t.transportRoutePicker.rentOrShared}
             </label>
             <label className="flex items-center gap-2 text-[13.5px] text-neutral-700 dark:text-neutral-300">
               <input
@@ -88,7 +90,7 @@ function RouteCard({
                 onChange={(e) => onChange({ ...value, carpool: e.target.checked })}
                 className="size-4 rounded border-black/20 text-brand focus:ring-brand dark:border-white/30"
               />
-              동승
+              {t.transportRoutePicker.carpool}
             </label>
           </>
         )}
@@ -96,7 +98,7 @@ function RouteCard({
 
       {transportMode === "PRIVATE_CAR" && (value.rent || value.carpool) && (
         <p className="text-[12px] text-amber-600 dark:text-amber-400">
-          렌트/동승은 정액 요금이 적용되지 않습니다.
+          {t.transportRoutePicker.rentCarpoolNote}
         </p>
       )}
     </div>
@@ -127,6 +129,7 @@ export default function TransportRoutePicker({
   initialFrom?: string;
   initialTo?: string;
 }) {
+  const t = useT();
   const [from, setFrom] = useState(initialFrom);
   const [to, setTo] = useState(initialTo);
   // 구간이 하나도 없을 땐 검색창을 바로 보여주고, 하나라도 있으면 "+"를 눌러야 다시 연다 -
@@ -189,7 +192,7 @@ export default function TransportRoutePicker({
                   toInputRef.current?.focus();
                 }
               }}
-              placeholder="출발 (예: 부산)"
+              placeholder={t.transportRoutePicker.fromPlaceholder}
               className="min-w-0 flex-1 rounded-xl border border-black/10 bg-white px-3 py-2.5 text-[15px] text-neutral-900 outline-none focus:border-brand dark:border-white/15 dark:bg-white/5 dark:text-neutral-100"
             />
             <span className="shrink-0 text-neutral-400">→</span>
@@ -198,7 +201,7 @@ export default function TransportRoutePicker({
               type="text"
               value={to}
               onChange={(e) => setTo(e.target.value)}
-              placeholder="도착 (예: 경주)"
+              placeholder={t.transportRoutePicker.toPlaceholder}
               className="min-w-0 flex-1 rounded-xl border border-black/10 bg-white px-3 py-2.5 text-[15px] text-neutral-900 outline-none focus:border-brand dark:border-white/15 dark:bg-white/5 dark:text-neutral-100"
             />
           </div>
@@ -218,7 +221,7 @@ export default function TransportRoutePicker({
           )}
           {notFound && (
             <p className="mt-2 text-[13px] text-amber-600 dark:text-amber-400">
-              입력되지 않은 구간입니다. 담당자에게 문의해주세요.
+              {t.transportRoutePicker.notFound}
             </p>
           )}
           {value.length > 0 && (
@@ -231,7 +234,7 @@ export default function TransportRoutePicker({
               }}
               className="mt-2 text-[13px] font-medium text-neutral-400"
             >
-              취소
+              {t.transportRoutePicker.cancel}
             </button>
           )}
         </div>
@@ -242,7 +245,7 @@ export default function TransportRoutePicker({
           className="flex items-center gap-1.5 text-[13.5px] font-medium text-brand dark:text-brand-light"
         >
           <IconPlus className="size-3.5" />
-          구간 추가
+          {t.transportRoutePicker.addSegment}
         </button>
       )}
     </div>

@@ -7,11 +7,13 @@ import LocalDataBoundary from "@/components/LocalDataBoundary";
 import { IconLodging } from "@/components/icons";
 import { useTrip } from "@/lib/useLocalTrip";
 import { useReceipts } from "@/lib/useLocalReceipts";
+import { useT } from "@/lib/i18n/LanguageProvider";
 
 export default function LodgingPage() {
   const { id } = useParams<{ id: string }>();
   const { status: tripStatus, trip } = useTrip(id);
   const { status: receiptsStatus, receipts, refresh } = useReceipts(id, "LODGING");
+  const t = useT();
 
   return (
     <LocalDataBoundary
@@ -20,7 +22,7 @@ export default function LodgingPage() {
     >
       {trip && (
         <main className="space-y-6">
-          <CategoryPageHeader tripId={id} icon={<IconLodging className="size-12" />} title="숙박" />
+          <CategoryPageHeader tripId={id} icon={<IconLodging className="size-12" />} title={t.categories.lodging} />
           <ReceiptManager
             tripId={id}
             category="LODGING"

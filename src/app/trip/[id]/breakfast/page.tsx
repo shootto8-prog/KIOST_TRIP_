@@ -8,11 +8,13 @@ import LocalDataBoundary from "@/components/LocalDataBoundary";
 import { IconBreakfast } from "@/components/icons";
 import { useTrip } from "@/lib/useLocalTrip";
 import { useReceipts } from "@/lib/useLocalReceipts";
+import { useT } from "@/lib/i18n/LanguageProvider";
 
 export default function BreakfastPage() {
   const { id } = useParams<{ id: string }>();
   const { status: tripStatus, trip, refresh: refreshTrip } = useTrip(id);
   const { status: receiptsStatus, receipts, refresh } = useReceipts(id, "BREAKFAST");
+  const t = useT();
 
   return (
     <LocalDataBoundary
@@ -21,7 +23,7 @@ export default function BreakfastPage() {
     >
       {trip && (
         <main className="space-y-6">
-          <CategoryPageHeader tripId={id} icon={<IconBreakfast className="size-12" />} title="조식" />
+          <CategoryPageHeader tripId={id} icon={<IconBreakfast className="size-12" />} title={t.categories.breakfast} />
           {trip.settlementMode === "DETAILED" && (
             <MealDeductionStepper
               tripId={id}
