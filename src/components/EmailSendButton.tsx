@@ -98,7 +98,7 @@ export default function EmailSendButton({
 
   if (!enabled) {
     return (
-      <div className="mt-2 flex items-center gap-2 rounded-2xl bg-white/10 px-4 py-2.5 text-[12.5px] text-blue-100">
+      <div className="flex min-w-[200px] flex-1 items-center gap-2 rounded-2xl bg-white/10 px-4 py-2.5 text-[12.5px] text-blue-100">
         <IconMail className="size-4 shrink-0" />
         이메일 발송 기능은 준비 중입니다 (회사 SMTP 계정 연동 후 제공 예정)
       </div>
@@ -110,7 +110,7 @@ export default function EmailSendButton({
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="mt-2 inline-flex items-center gap-2 rounded-full bg-white/15 px-4 py-2.5 text-[14px] font-semibold text-white backdrop-blur transition hover:bg-white/25"
+        className="shrink-0 inline-flex items-center gap-2 rounded-full bg-white/15 px-4 py-2.5 text-[14px] font-semibold text-white backdrop-blur transition hover:bg-white/25"
       >
         <IconMail className="size-5" />
         이메일로 받기
@@ -119,7 +119,7 @@ export default function EmailSendButton({
   }
 
   return (
-    <div className="mt-2">
+    <div className="min-w-[220px] flex-1">
       <form onSubmit={handleSend} className="flex flex-col gap-2 sm:flex-row">
         <input
           type="email"
