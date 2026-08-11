@@ -12,6 +12,10 @@ import {
 export type StopType = "DEPARTURE" | "STOPOVER" | "ARRIVAL";
 /** 고속철도(KTX) 요금이 직급별로 달라(TRANS/ktx.xls) 출장 등록 시 한 번 받아 고정한다. */
 export type PositionGrade = "SENIOR" | "JUNIOR";
+/** 간편모드는 조식/교통/숙박/현장사진 증빙만 모아 발송하고, 자동정산·직급·구간정액정산 같은
+ * 상세모드 전용 메뉴는 아예 노출하지 않는다(2026-08-11). 기존 출장(이 필드가 없던 시절 생성)은
+ * 항상 상세모드였으므로, 읽을 때 값이 없으면 "DETAILED"로 취급한다. */
+export type SettlementMode = "SIMPLE" | "DETAILED";
 export type Category = "BREAKFAST" | "TRANSPORT" | "LODGING" | "FIELD";
 export type TransportMode = "SHIP" | "AIR" | "RAIL" | "PRIVATE_CAR" | "BUS";
 export type OcrStatus = "PENDING" | "DONE" | "FAILED";
@@ -23,8 +27,9 @@ export type LocalStop = { id: string; type: StopType; location: string; order: n
 export type LocalTrip = {
   id: string;
   status: TripStatus;
+  settlementMode: SettlementMode;
   autoSettlement: boolean;
-  grade: PositionGrade;
+  grade: PositionGrade | null;
   startDate: string; // ISO
   endDate: string; // ISO
   createdAt: string; // ISO
@@ -68,8 +73,9 @@ type ReceiptPayload = Omit<
 type TripRecord = {
   id: string;
   status: TripStatus;
+  settlementMode: SettlementMode;
   autoSettlement: boolean;
-  grade: PositionGrade;
+  grade: PositionGrade | null;
   createdAt: string;
   updatedAt: string;
   enc: Encrypted;
@@ -167,8 +173,11 @@ async function toLocalTrip(record: TripRecord, key: CryptoKey): Promise<LocalTri
   return {
     id: record.id,
     status: record.status,
+    // 이 필드가 생기기 전에 만들어진 출장은 항상 상세모드였다 - 값이 없으면(구버전 레코드)
+    // "DETAILED"로 취급한다.
+    settlementMode: record.settlementMode ?? "DETAILED",
     autoSettlement: record.autoSettlement,
-    grade: record.grade,
+    grade: record.grade ?? null,
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
     ...payload,
@@ -179,8 +188,9 @@ export async function createTrip(input: {
   startDate: string;
   endDate: string;
   stops: Omit<LocalStop, "id">[];
+  settlementMode?: SettlementMode;
   autoSettlement: boolean;
-  grade: PositionGrade;
+  grade: PositionGrade | null;
 }): Promise<LocalTrip> {
   const db = await openLocalDb();
   const key = await getDeviceKey();
@@ -194,6 +204,7 @@ export async function createTrip(input: {
   const record: TripRecord = {
     id: newId(),
     status: "ACTIVE",
+    settlementMode: input.settlementMode ?? "DETAILED",
     autoSettlement: input.autoSettlement,
     grade: input.grade,
     createdAt: now,
