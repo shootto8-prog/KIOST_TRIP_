@@ -1,6 +1,7 @@
 "use client";
 
 import { IconMoon, IconSun } from "./icons";
+import { useT } from "@/lib/i18n/LanguageProvider";
 
 /**
  * layout.tsx의 인라인 스크립트가 최초 페인트 전에 <html>에 .dark 클래스를 이미 붙여둔다.
@@ -9,6 +10,8 @@ import { IconMoon, IconSun } from "./icons";
  * 마운트 전까지 아이콘이 잠깐 반대로 보이는 깜빡임도 없다. (2026-08-07 안정성 재검토 반영)
  */
 export default function ThemeToggle() {
+  const t = useT();
+
   function toggle() {
     const next = !document.documentElement.classList.contains("dark");
     document.documentElement.classList.toggle("dark", next);
@@ -19,8 +22,8 @@ export default function ThemeToggle() {
     <button
       type="button"
       onClick={toggle}
-      aria-label="다크모드 전환"
-      title="다크모드 전환"
+      aria-label={t.themeToggle.label}
+      title={t.themeToggle.label}
       className="flex size-9 shrink-0 items-center justify-center rounded-full bg-brand/5 text-neutral-500 transition active:scale-95 dark:bg-white/5 dark:text-neutral-400"
     >
       <IconMoon className="size-[18px] dark:hidden" />

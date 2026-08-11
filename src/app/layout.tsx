@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import { IconPhone, IconMail } from "@/components/icons";
+import { LanguageProvider } from "@/lib/i18n/LanguageProvider";
+import LayoutFooter from "@/components/LayoutFooter";
 
 export const metadata: Metadata = {
   title: "정총무1.0(KIOST 국내여비 간편서비스)",
@@ -21,35 +22,26 @@ export default function RootLayout({
               "(function(){try{var t=localStorage.getItem('theme');if(!t){t=window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';}document.documentElement.classList.toggle('dark',t==='dark');}catch(e){}})();",
           }}
         />
+        {/* lang 속성은 텍스트가 아니라 속성이라, suppressHydrationWarning 덕에 테마와 똑같이
+            페인트 전에 안전하게 반영할 수 있다(실제 화면 텍스트는 LanguageProvider가 마운트
+            후에 전환 - lang 속성만 이 스크립트로 미리 맞춰둔다). */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html:
+              "(function(){try{if(localStorage.getItem('lang')==='en'){document.documentElement.lang='en';}}catch(e){}})();",
+          }}
+        />
       </head>
       <body className="min-h-screen">
-        <div className="watermark-logo" aria-hidden="true" />
-        <div className="relative z-10 mx-auto max-w-2xl px-4 pb-24 pt-8 sm:px-6">
-          {children}
-          <footer className="mt-10 border-t border-black/5 pt-4 text-center text-sm leading-relaxed text-neutral-400 dark:border-white/10 dark:text-neutral-500">
-            <p>정총무 1.0 (KIOST 국내여비 간편서비스) 2026</p>
-            <p className="flex items-center justify-center gap-1.5">
-              <span>문의 : KIOST 총무복지실</span>
-              <a
-                href="tel:051-664-9090"
-                aria-label="전화 문의 051-664-9090"
-                title="051-664-9090"
-                className="inline-flex items-center justify-center rounded-full p-1 text-neutral-400 hover:text-brand dark:text-neutral-500 dark:hover:text-brand-light"
-              >
-                <IconPhone className="size-3.5" />
-              </a>
-              <a
-                href="mailto:young@kiost.ac.kr"
-                aria-label="이메일 문의 young@kiost.ac.kr"
-                title="young@kiost.ac.kr"
-                className="inline-flex items-center justify-center rounded-full p-1 text-neutral-400 hover:text-brand dark:text-neutral-500 dark:hover:text-brand-light"
-              >
-                <IconMail className="size-3.5" />
-              </a>
-            </p>
-            <p>해당 시스템은 참고용이며, 담당부서 검토시 수정,반려될 수 있습니다</p>
-          </footer>
-        </div>
+        <LanguageProvider>
+          <div className="watermark-logo" aria-hidden="true" />
+          <div className="relative z-10 mx-auto max-w-2xl px-4 pb-24 pt-8 sm:px-6">
+            {children}
+            <footer className="mt-10 border-t border-black/5 pt-4 text-center text-sm leading-relaxed text-neutral-400 dark:border-white/10 dark:text-neutral-500">
+              <LayoutFooter />
+            </footer>
+          </div>
+        </LanguageProvider>
       </body>
     </html>
   );

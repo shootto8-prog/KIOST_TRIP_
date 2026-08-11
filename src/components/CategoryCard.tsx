@@ -1,5 +1,9 @@
+"use client";
+
 import Link from "next/link";
 import type { ReactNode } from "react";
+import { useLocale } from "@/lib/i18n/LanguageProvider";
+import { buildCategorySummary } from "@/lib/i18n/messages/categorySummary";
 
 export default function CategoryCard({
   href,
@@ -17,12 +21,8 @@ export default function CategoryCard({
   /** false면 금액이 항상 0(판정을 안 하므로)이라, "0원"처럼 오해할 수 있는 표시 대신 건수만 보여준다. */
   autoSettlement?: boolean;
 }) {
-  const summaryText =
-    count === 0
-      ? "등록된 영수증 없음"
-      : autoSettlement
-      ? `${count}건 · ${amount.toLocaleString("ko-KR")}원`
-      : `${count}건 제출`;
+  const { locale } = useLocale();
+  const summaryText = buildCategorySummary(locale, count, amount, autoSettlement);
   return (
     <Link
       href={href}
