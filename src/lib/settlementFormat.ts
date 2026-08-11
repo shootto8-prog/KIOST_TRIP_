@@ -107,6 +107,10 @@ export function computeBreakfastSettlementTotal(
  *
  * 표기(곱셈 기호 "*", 숫자 뒤 "원" 없음, 마지막 항에 설명 괄호 없음)는 사내 업무망 입력 산식
  * 표기를 그대로 옮긴 것이라 임의로 다듬지 않는다(2026-08-10, 사용자 확인).
+ *
+ * 영어 버전(2026-08-11)에서도 locale 파라미터를 안 받는다 - 이 문자열의 목적 자체가 KIOST
+ * 사내 업무망(한국어 시스템)에 그대로 옮겨 붙이는 것이라, 영어로 번역하면 오히려 원래 용도로
+ * 못 쓰게 된다. formatTransportSettlement도 같은 이유로 locale 무관.
  */
 export function formatBreakfastSettlement(
   totalDays: number,

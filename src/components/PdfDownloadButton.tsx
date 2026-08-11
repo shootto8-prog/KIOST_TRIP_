@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { assembleTripPdf } from "@/lib/pdfAssembleClient";
 import { IconDownload } from "./icons";
+import { useLocale, useT } from "@/lib/i18n/LanguageProvider";
 
 /**
  * 예전엔 /api/trips/[id]/pdf에 그냥 <a href download>로 링크만 걸면 됐지만, 이제 PDF를
@@ -12,12 +13,14 @@ import { IconDownload } from "./icons";
 export default function PdfDownloadButton({ tripId, label }: { tripId: string; label: string }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const t = useT();
+  const { locale } = useLocale();
 
   async function handleClick() {
     setLoading(true);
     setError(null);
     try {
-      const blob = await assembleTripPdf(tripId);
+      const blob = await assembleTripPdf(tripId, locale);
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
@@ -28,7 +31,7 @@ export default function PdfDownloadButton({ tripId, label }: { tripId: string; l
       URL.revokeObjectURL(url);
     } catch (err) {
       console.error("PDF 생성 실패:", err);
-      setError("PDF 생성에 실패했습니다. 잠시 후 다시 시도해주세요.");
+      setError(t.pdfDownloadButton.errGenerate);
     } finally {
       setLoading(false);
     }
@@ -43,7 +46,7 @@ export default function PdfDownloadButton({ tripId, label }: { tripId: string; l
         className="inline-flex items-center gap-2 rounded-full bg-white/15 px-4 py-2.5 text-[14px] font-semibold text-white backdrop-blur transition hover:bg-white/25 disabled:opacity-50"
       >
         <IconDownload className="size-5" />
-        {loading ? "PDF 생성 중..." : label}
+        {loading ? t.pdfDownloadButton.generating : label}
       </button>
       {error && <p className="mt-2 text-[13px] text-red-100">{error}</p>}
     </div>

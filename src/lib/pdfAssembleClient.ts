@@ -1,15 +1,13 @@
 import { PDFDocument, PDFFont, PDFPage, rgb } from "pdf-lib";
 import fontkit from "@pdf-lib/fontkit";
 import {
-  CATEGORY_LABEL,
-  STOP_TYPE_LABEL,
   verdictDisplayLabel,
   formatDate,
   formatDateTime,
+  stopTypeLabel,
 } from "./format";
 import {
   amountOrDash,
-  countOrDash,
   tripTotalDays,
   formatBreakfastSettlement,
   formatTransportSettlement,
@@ -19,6 +17,10 @@ import {
 import { getTrip, listReceiptsByTrip, getReceiptImageBytes } from "./localDb";
 import { toPdfEmbeddableJpeg } from "./imageConvertClient";
 import { summarizeByCategory } from "./tripSummaryLocal";
+import { DEFAULT_LOCALE, type Locale } from "./i18n/locale";
+import ko from "./i18n/dictionaries/ko";
+import en from "./i18n/dictionaries/en";
+import { categoryDetailHeading, fieldPhotoHeading, countOrDash } from "./i18n/messages/pdf";
 
 /**
  * src/lib/generatePdf.ts(서버, Prisma+파일시스템+Vercel Blob 기반)의 브라우저 포트.
@@ -75,11 +77,16 @@ class PdfWriter {
   y = 0;
   font: PDFFont;
   bold: PDFFont;
+  messages: { imageNotFound: string; imageRenderFailed: string };
 
-  constructor(doc: PDFDocument, font: PDFFont, bold: PDFFont) {
+  /** messages는 image()의 두 에러 문구 - PdfWriter는 이 프로퍼티 하나만 locale을 알고,
+   * 나머지는 여전히 언어 무관한 순수 그리기 유틸로 남긴다(구분/건수 등 표 헤더는
+   * settlementTable()/simpleSummaryTable() 호출부가 이미 번역된 문자열을 넘기는 것과 같은 원칙). */
+  constructor(doc: PDFDocument, font: PDFFont, bold: PDFFont, messages: { imageNotFound: string; imageRenderFailed: string }) {
     this.doc = doc;
     this.font = font;
     this.bold = bold;
+    this.messages = messages;
     this.newPage();
   }
 
@@ -119,22 +126,43 @@ class PdfWriter {
    * 그려진 텍스트는(한글 폰트를 서브셋 없이 통째로 embed해뒀으므로) 대부분의 PDF 리더에서
    * 기본 지원하는 드래그 선택/복사가 그대로 먹혀 오히려 더 안정적이다(2026-08-10 실사용 피드백).
    */
-  settlementTable(rows: { label: string; count: string; total: string; settlement: string; note: string }[]) {
-    const labelW = 40;
-    const countW = 34;
-    const totalW = 60;
-    const noteW = 48;
-    const settlementX = MARGIN + labelW + countW + totalW;
-    const settlementW = CONTENT_WIDTH - labelW - countW - totalW - noteW;
-    const noteX = settlementX + settlementW;
+  /**
+   * 컬럼 폭을 헤더/구분/건수/합계금액/비고 칸의 실제 텍스트 폭(font.widthOfTextAtSize)으로
+   * 계산한다 - 예전엔 한글 2-4자 기준 고정 픽셀값이라 영어 헤더("Category"/"Total Amount" 등)가
+   * 넘쳤다(2026-08-11 영어 버전 작업 중 발견). "정산(안)"/"Settlement" 칸만 남은 폭을 그대로
+   * 쓰는 유동 칸으로 남긴다 - 그 칸의 실제 값(사내망 입력용 산식)은 언어와 무관하게 항상
+   * 한국어 표기라 폭이 이미 안정적으로 짧다(아래 formatBreakfastSettlement 주석 참고).
+   */
+  settlementTable(
+    rows: { label: string; count: string; total: string; settlement: string; note: string }[],
+    headers: [string, string, string, string, string]
+  ) {
+    const cellPadX = 12;
     const headerH = 22;
     const cellPadY = 6;
     const lineH = 12;
+    const headerFontSize = 10.5;
+    const cellFontSize = 10.5;
+    const totalNoteFontSize = 9.5;
     const settlementFontSize = 9;
     const minRowH = 24;
+    const minSettlementW = 100;
+
+    const colWidth = (header: string, values: string[], font: PDFFont, size: number) =>
+      Math.max(this.bold.widthOfTextAtSize(header, headerFontSize), ...values.map((v) => font.widthOfTextAtSize(v, size))) +
+      cellPadX;
+
+    const labelW = colWidth(headers[0], rows.map((r) => r.label), this.bold, cellFontSize);
+    const countW = colWidth(headers[1], rows.map((r) => r.count), this.font, cellFontSize);
+    const totalW = colWidth(headers[2], rows.map((r) => r.total), this.font, totalNoteFontSize);
+    const noteW = colWidth(headers[4], rows.map((r) => r.note), this.font, totalNoteFontSize);
+    const settlementX = MARGIN + labelW + countW + totalW;
+    const settlementW = Math.max(minSettlementW, CONTENT_WIDTH - labelW - countW - totalW - noteW);
+    const noteX = settlementX + settlementW;
+    const tableWidth = labelW + countW + totalW + settlementW + noteW;
 
     const rowHeights = rows.map((r) => {
-      const lines = wrapText(this.font, r.settlement, settlementW - 12, settlementFontSize).length;
+      const lines = wrapText(this.font, r.settlement, settlementW - cellPadX, settlementFontSize).length;
       return Math.max(minRowH, lines * lineH + cellPadY * 2);
     });
     const totalH = headerH + rowHeights.reduce((a, b) => a + b, 0);
@@ -146,11 +174,11 @@ class PdfWriter {
     const headerBg = rgb(0.95, 0.96, 0.98);
     const colX = [left, left + labelW, left + labelW + countW, settlementX, noteX];
 
-    this.page.drawRectangle({ x: left, y: top - headerH, width: CONTENT_WIDTH, height: headerH, color: headerBg });
+    this.page.drawRectangle({ x: left, y: top - headerH, width: tableWidth, height: headerH, color: headerBg });
     this.page.drawRectangle({
       x: left,
       y: top - totalH,
-      width: CONTENT_WIDTH,
+      width: tableWidth,
       height: totalH,
       borderColor,
       borderWidth: 1,
@@ -159,26 +187,25 @@ class PdfWriter {
       this.page.drawLine({ start: { x, y: top }, end: { x, y: top - totalH }, thickness: 1, color: borderColor });
     }
 
-    const headers = ["구분", "건수", "합계금액", "정산(안)", "비고"];
     headers.forEach((h, i) => {
-      this.page.drawText(h, { x: colX[i] + 6, y: top - headerH + 7, size: 10.5, font: this.bold, color: COLOR_TEXT });
+      this.page.drawText(h, { x: colX[i] + 6, y: top - headerH + 7, size: headerFontSize, font: this.bold, color: COLOR_TEXT });
     });
 
     let cursorY = top - headerH;
     rows.forEach((r) => {
-      const lines = wrapText(this.font, r.settlement, settlementW - 12, settlementFontSize);
+      const lines = wrapText(this.font, r.settlement, settlementW - cellPadX, settlementFontSize);
       const h = Math.max(minRowH, lines.length * lineH + cellPadY * 2);
       this.page.drawLine({
         start: { x: left, y: cursorY },
-        end: { x: left + CONTENT_WIDTH, y: cursorY },
+        end: { x: left + tableWidth, y: cursorY },
         thickness: 0.5,
         color: borderColor,
       });
       const labelTextY = cursorY - cellPadY - lineH + 2;
-      this.page.drawText(r.label, { x: colX[0] + 6, y: labelTextY, size: 10.5, font: this.bold, color: COLOR_TEXT });
-      this.page.drawText(r.count, { x: colX[1] + 6, y: labelTextY, size: 10.5, font: this.font, color: COLOR_TEXT });
-      this.page.drawText(r.total, { x: colX[2] + 6, y: labelTextY, size: 9.5, font: this.font, color: COLOR_TEXT });
-      this.page.drawText(r.note, { x: colX[4] + 6, y: labelTextY, size: 9.5, font: this.font, color: COLOR_TEXT });
+      this.page.drawText(r.label, { x: colX[0] + 6, y: labelTextY, size: cellFontSize, font: this.bold, color: COLOR_TEXT });
+      this.page.drawText(r.count, { x: colX[1] + 6, y: labelTextY, size: cellFontSize, font: this.font, color: COLOR_TEXT });
+      this.page.drawText(r.total, { x: colX[2] + 6, y: labelTextY, size: totalNoteFontSize, font: this.font, color: COLOR_TEXT });
+      this.page.drawText(r.note, { x: colX[4] + 6, y: labelTextY, size: totalNoteFontSize, font: this.font, color: COLOR_TEXT });
       lines.forEach((line, li) => {
         this.page.drawText(line, {
           x: settlementX + 6,
@@ -200,11 +227,22 @@ class PdfWriter {
    * 표 형태(2026-08-11). 판정/조정 없이 사용자가 입력한 금액을 그대로 보여주는 간편모드 취지에
    * 맞춰, 산식(정산(안))이나 비고 칸 없이 결과 숫자만 나열한다.
    */
-  simpleSummaryTable(rows: { label: string; count: string; total: string }[]) {
-    const labelW = 90;
-    const countW = 90;
+  simpleSummaryTable(rows: { label: string; count: string; total: string }[], headers: [string, string, string]) {
+    const cellPadX = 16;
     const headerH = 22;
     const rowH = 26;
+    const headerFontSize = 10.5;
+    const cellFontSize = 11;
+    const minTotalW = 80;
+
+    const colWidth = (header: string, values: string[], font: PDFFont) =>
+      Math.max(this.bold.widthOfTextAtSize(header, headerFontSize), ...values.map((v) => font.widthOfTextAtSize(v, cellFontSize))) +
+      cellPadX;
+
+    const labelW = colWidth(headers[0], rows.map((r) => r.label), this.bold);
+    const countW = colWidth(headers[1], rows.map((r) => r.count), this.font);
+    const totalW = Math.max(minTotalW, CONTENT_WIDTH - labelW - countW);
+    const tableWidth = labelW + countW + totalW;
     const totalH = headerH + rows.length * rowH;
     this.ensureSpace(totalH + 12);
 
@@ -214,11 +252,11 @@ class PdfWriter {
     const headerBg = rgb(0.95, 0.96, 0.98);
     const colX = [left, left + labelW, left + labelW + countW];
 
-    this.page.drawRectangle({ x: left, y: top - headerH, width: CONTENT_WIDTH, height: headerH, color: headerBg });
+    this.page.drawRectangle({ x: left, y: top - headerH, width: tableWidth, height: headerH, color: headerBg });
     this.page.drawRectangle({
       x: left,
       y: top - totalH,
-      width: CONTENT_WIDTH,
+      width: tableWidth,
       height: totalH,
       borderColor,
       borderWidth: 1,
@@ -227,23 +265,22 @@ class PdfWriter {
       this.page.drawLine({ start: { x, y: top }, end: { x, y: top - totalH }, thickness: 1, color: borderColor });
     }
 
-    const headers = ["구분", "건수", "합계금액"];
     headers.forEach((h, i) => {
-      this.page.drawText(h, { x: colX[i] + 8, y: top - headerH + 7, size: 10.5, font: this.bold, color: COLOR_TEXT });
+      this.page.drawText(h, { x: colX[i] + 8, y: top - headerH + 7, size: headerFontSize, font: this.bold, color: COLOR_TEXT });
     });
 
     let cursorY = top - headerH;
     rows.forEach((r) => {
       this.page.drawLine({
         start: { x: left, y: cursorY },
-        end: { x: left + CONTENT_WIDTH, y: cursorY },
+        end: { x: left + tableWidth, y: cursorY },
         thickness: 0.5,
         color: borderColor,
       });
       const textY = cursorY - rowH / 2 - 4;
-      this.page.drawText(r.label, { x: colX[0] + 8, y: textY, size: 11, font: this.bold, color: COLOR_TEXT });
-      this.page.drawText(r.count, { x: colX[1] + 8, y: textY, size: 11, font: this.font, color: COLOR_TEXT });
-      this.page.drawText(r.total, { x: colX[2] + 8, y: textY, size: 11, font: this.font, color: COLOR_TEXT });
+      this.page.drawText(r.label, { x: colX[0] + 8, y: textY, size: cellFontSize, font: this.bold, color: COLOR_TEXT });
+      this.page.drawText(r.count, { x: colX[1] + 8, y: textY, size: cellFontSize, font: this.font, color: COLOR_TEXT });
+      this.page.drawText(r.total, { x: colX[2] + 8, y: textY, size: cellFontSize, font: this.font, color: COLOR_TEXT });
       cursorY -= rowH;
     });
 
@@ -265,7 +302,7 @@ class PdfWriter {
   async image(imageId: string) {
     const stored = await getReceiptImageBytes(imageId, "full");
     if (!stored) {
-      this.text("(첨부 이미지를 찾을 수 없습니다)", { size: 10, color: COLOR_MUTED, gap: 16 });
+      this.text(this.messages.imageNotFound, { size: 10, color: COLOR_MUTED, gap: 16 });
       return;
     }
 
@@ -275,7 +312,7 @@ class PdfWriter {
       embedded = await this.doc.embedJpg(new Uint8Array(await jpeg.arrayBuffer()));
     } catch (err) {
       console.error("PDF image resize failed:", err);
-      this.text("(이미지 렌더링에 실패했습니다)", { size: 10, color: COLOR_MUTED, gap: 16 });
+      this.text(this.messages.imageRenderFailed, { size: 10, color: COLOR_MUTED, gap: 16 });
       return;
     }
 
@@ -310,14 +347,14 @@ class PdfWriter {
   }
 }
 
-async function embedKoreanFonts(doc: PDFDocument): Promise<{ regular: PDFFont; bold: PDFFont }> {
+async function embedKoreanFonts(doc: PDFDocument, locale: Locale): Promise<{ regular: PDFFont; bold: PDFFont }> {
   doc.registerFontkit(fontkit);
   const [regularRes, boldRes] = await Promise.all([
     fetch("/fonts/Pretendard-Regular.ttf"),
     fetch("/fonts/Pretendard-Bold.ttf"),
   ]);
   if (!regularRes.ok || !boldRes.ok) {
-    throw new Error("한글 폰트 파일을 불러오지 못했습니다.");
+    throw new Error((locale === "ko" ? ko : en).pdf.fontLoadError);
   }
   const [regularBytes, boldBytes] = await Promise.all([regularRes.arrayBuffer(), boldRes.arrayBuffer()]);
   // subset: true로 두면 pdf-lib(fontkit)의 서브셋터가 Pretendard의 글리프 테이블을 제대로
@@ -338,33 +375,35 @@ async function embedKoreanFonts(doc: PDFDocument): Promise<{ regular: PDFFont; b
 }
 
 const SETTLED_CATEGORIES = ["BREAKFAST", "TRANSPORT", "LODGING"] as const;
-const FOOTER_DISCLAIMER =
-  "본 자료는 최종확정이 아니며, 담당자의 검토과정에서 조정, 반려될 수 있습니다.";
 
-export async function assembleTripPdf(tripId: string): Promise<Blob> {
+export async function assembleTripPdf(tripId: string, locale: Locale = DEFAULT_LOCALE): Promise<Blob> {
+  const t = locale === "ko" ? ko : en;
   const trip = await getTrip(tripId);
-  if (!trip) throw new Error("출장 정보를 찾을 수 없습니다.");
+  if (!trip) throw new Error(t.pdf.tripNotFound);
   const receipts = await listReceiptsByTrip(tripId);
   const { byCategory, sumByCategory, totalAmount } = summarizeByCategory(receipts);
 
-  const titleText = "국내여비 증빙서류 내역서";
+  const titleText = t.pdf.title;
 
   const doc = await PDFDocument.create();
   doc.setTitle(titleText);
-  const { regular, bold } = await embedKoreanFonts(doc);
-  const w = new PdfWriter(doc, regular, bold);
+  const { regular, bold } = await embedKoreanFonts(doc, locale);
+  const w = new PdfWriter(doc, regular, bold, {
+    imageNotFound: t.pdf.imageNotFound,
+    imageRenderFailed: t.pdf.imageRenderFailed,
+  });
 
   w.text(titleText, { size: 18, bold: true, gap: 28 });
-  w.text(`생성일시: ${formatDateTime(new Date())}`, { size: 9, color: COLOR_MUTED, gap: 20 });
+  w.text(`${t.pdf.generatedAtPrefix}${formatDateTime(new Date(), locale)}`, { size: 9, color: COLOR_MUTED, gap: 20 });
 
-  w.text(`출장기간   ${formatDate(trip.startDate)} ~ ${formatDate(trip.endDate)}`, {
+  w.text(`${t.pdf.tripPeriodPrefix}${formatDate(trip.startDate, locale)} ~ ${formatDate(trip.endDate, locale)}`, {
     size: 12,
     bold: true,
     gap: 22,
   });
-  w.text("출장경로", { size: 13, bold: true, gap: 20 });
+  w.text(t.pdf.tripRouteHeading, { size: 13, bold: true, gap: 20 });
   for (const stop of trip.stops) {
-    w.text(`${STOP_TYPE_LABEL[stop.type]}   ${stop.location}`, {
+    w.text(`${stopTypeLabel(stop.type, locale)}   ${stop.location}`, {
       size: 11,
       gap: 18,
     });
@@ -372,23 +411,43 @@ export async function assembleTripPdf(tripId: string): Promise<Blob> {
   w.spacer(8);
   w.hr();
 
-  w.text("항목별 합계", { size: 13, bold: true, gap: 20 });
+  w.text(t.pdf.itemSummaryHeading, { size: 13, bold: true, gap: 20 });
+
+  const tableHeaders5: [string, string, string, string, string] = [
+    t.pdf.headers.category,
+    t.pdf.headers.count,
+    t.pdf.headers.total,
+    t.pdf.headers.settlement,
+    t.pdf.headers.note,
+  ];
+  const tableHeaders3: [string, string, string] = [t.pdf.headers.category, t.pdf.headers.count, t.pdf.headers.total];
 
   if (trip.settlementMode === "SIMPLE") {
     // 간편모드는 "정산(안)" 산식·인트라넷 비고 칸이 있는 상세모드 표 대신, 예전처럼 구분/건수/
     // 합계금액 3열짜리 단순한 표로 보여준다(2026-08-11). 금액은 상세모드와 마찬가지로 규정
     // 검토를 거친 확인금액(verdictAmount) 합계다 - 조식만 상세모드와 달리 "45,000×일수-15,000+X"
     // 산식으로 재계산하지 않고, 등록된 영수증의 확인금액 합계를 그대로 보여준다.
-    w.simpleSummaryTable([
-      { label: "조식", count: countOrDash(byCategory.BREAKFAST.length, "건"), total: amountOrDash(sumByCategory.BREAKFAST) },
-      {
-        label: CATEGORY_LABEL.TRANSPORT,
-        count: countOrDash(byCategory.TRANSPORT.length, "건"),
-        total: amountOrDash(sumByCategory.TRANSPORT),
-      },
-      { label: CATEGORY_LABEL.LODGING, count: countOrDash(byCategory.LODGING.length, "건"), total: amountOrDash(sumByCategory.LODGING) },
-      { label: "현장사진", count: countOrDash(byCategory.FIELD.length, "건"), total: "-" },
-    ]);
+    w.simpleSummaryTable(
+      [
+        {
+          label: t.categories.breakfast,
+          count: countOrDash(locale, byCategory.BREAKFAST.length),
+          total: amountOrDash(sumByCategory.BREAKFAST),
+        },
+        {
+          label: t.pdf.categoryLabels.transport,
+          count: countOrDash(locale, byCategory.TRANSPORT.length),
+          total: amountOrDash(sumByCategory.TRANSPORT),
+        },
+        {
+          label: t.pdf.categoryLabels.lodging,
+          count: countOrDash(locale, byCategory.LODGING.length),
+          total: amountOrDash(sumByCategory.LODGING),
+        },
+        { label: t.pdf.categoryLabels.field, count: countOrDash(locale, byCategory.FIELD.length), total: t.pdf.noteDash },
+      ],
+      tableHeaders3
+    );
     w.spacer(4);
   } else {
     // "정산(안)" 칸은 사내 업무망에 그대로 옮겨 적기 쉽도록 산식 형태로 보여준다(2026-08-10).
@@ -397,6 +456,11 @@ export async function assembleTripPdf(tripId: string): Promise<Blob> {
     // 표기에 맞춰 이 PDF 안에서는 금액에 "원" 단위를 붙이지 않는다(2026-08-10, 사용자 요청).
     // "합계금액" 칸은 그 산식을 미리 계산한 최종 숫자만 따로 보여준다(산식과 별개로 최종금액도
     // 한눈에 보고 싶다는 피드백).
+    //
+    // formatBreakfastSettlement/formatTransportSettlement는 locale과 무관하게 항상 한국어
+    // 산식 표기("*"/"원 없음"/"1일차 조식비 제외" 등)로 고정한다 - 이 칸의 목적 자체가 KIOST
+    // 사내 업무망(한국어 시스템)에 그대로 옮겨 붙이는 것이라, 영어로 바꾸면 오히려 원래 용도를
+    // 못 쓰게 된다(2026-08-11 영어 버전 작업 시점 결정 - settlementFormat.ts 주석 참고).
     const totalDays = tripTotalDays(trip.startDate, trip.endDate);
     const breakfastTotal = computeBreakfastSettlementTotal(
       totalDays,
@@ -409,52 +473,57 @@ export async function assembleTripPdf(tripId: string): Promise<Blob> {
     // 판단한다(사내 시스템 기준과 동일, 2026-08-10). ReceiptManager.tsx의 화면 안내와 같은 기준
     // 함수(exceedsLodgingIntranetThreshold)를 써서 둘이 어긋나지 않게 한다.
     const tripNights = Math.max(1, totalDays - 1);
-    const lodgingNote = exceedsLodgingIntranetThreshold(sumByCategory.LODGING, tripNights) ? "여비정산" : "-";
+    const lodgingNote = exceedsLodgingIntranetThreshold(sumByCategory.LODGING, tripNights)
+      ? t.pdf.noteLodgingIntranet
+      : t.pdf.noteDash;
     // 조식비를 실제로 신청한 경우(앱에 등록된 조식 인정금액이 있는 경우, 산식의 "+ N" 항이
     // 붙는 것과 같은 조건)에만 "조식"이라고 표시한다(2026-08-10, 사용자 요청).
-    const breakfastNote = sumByCategory.BREAKFAST > 0 ? "조식" : "-";
-    w.settlementTable([
-      {
-        // 이 표에서만 "조식" 대신 "식비"로 표기한다(2026-08-10, 사용자 요청) - 다른 화면(카테고리
-        // 카드, 조식 메뉴 헤더 등)의 "조식" 표기는 그대로 둔다.
-        label: "식비",
-        count: countOrDash(byCategory.BREAKFAST.length, "건"),
-        total: breakfastTotal.toLocaleString("ko-KR"),
-        settlement: formatBreakfastSettlement(totalDays, sumByCategory.BREAKFAST, trip.mealDeductionCount),
-        note: breakfastNote,
-      },
-      {
-        label: CATEGORY_LABEL.TRANSPORT,
-        count: countOrDash(byCategory.TRANSPORT.length, "건"),
-        total: amountOrDash(transportTotal),
-        settlement: formatTransportSettlement(transportAmounts),
-        note: "-",
-      },
-      {
-        label: CATEGORY_LABEL.LODGING,
-        count: countOrDash(byCategory.LODGING.length, "건"),
-        total: amountOrDash(sumByCategory.LODGING),
-        settlement: amountOrDash(sumByCategory.LODGING),
-        note: lodgingNote,
-      },
-      {
-        label: "현장사진",
-        count: countOrDash(byCategory.FIELD.length, "건"),
-        total: "-",
-        settlement: "-",
-        note: "-",
-      },
-    ]);
+    const breakfastNote = sumByCategory.BREAKFAST > 0 ? t.pdf.noteBreakfastYes : t.pdf.noteDash;
+    w.settlementTable(
+      [
+        {
+          // 이 표에서만 "조식" 대신 "식비"로 표기한다(2026-08-10, 사용자 요청) - 다른 화면(카테고리
+          // 카드, 조식 메뉴 헤더 등)의 "조식" 표기는 그대로 둔다.
+          label: t.pdf.categoryLabels.breakfast,
+          count: countOrDash(locale, byCategory.BREAKFAST.length),
+          total: breakfastTotal.toLocaleString("ko-KR"),
+          settlement: formatBreakfastSettlement(totalDays, sumByCategory.BREAKFAST, trip.mealDeductionCount),
+          note: breakfastNote,
+        },
+        {
+          label: t.pdf.categoryLabels.transport,
+          count: countOrDash(locale, byCategory.TRANSPORT.length),
+          total: amountOrDash(transportTotal),
+          settlement: formatTransportSettlement(transportAmounts),
+          note: t.pdf.noteDash,
+        },
+        {
+          label: t.pdf.categoryLabels.lodging,
+          count: countOrDash(locale, byCategory.LODGING.length),
+          total: amountOrDash(sumByCategory.LODGING),
+          settlement: amountOrDash(sumByCategory.LODGING),
+          note: lodgingNote,
+        },
+        {
+          label: t.pdf.categoryLabels.field,
+          count: countOrDash(locale, byCategory.FIELD.length),
+          total: t.pdf.noteDash,
+          settlement: t.pdf.noteDash,
+          note: t.pdf.noteDash,
+        },
+      ],
+      tableHeaders5
+    );
     w.spacer(4);
     if (trip.autoSettlement) {
-      w.text(`전체 합계   ${totalAmount.toLocaleString("ko-KR")}`, {
+      w.text(`${t.pdf.grandTotalPrefix}${totalAmount.toLocaleString("ko-KR")}`, {
         size: 15,
         bold: true,
         color: COLOR_ACCENT,
         gap: 28,
       });
     } else {
-      w.text("자동정산 미사용 - 담당자가 제출 서류를 확인해 금액을 확정합니다.", {
+      w.text(t.pdf.autoSettlementOffNotice, {
         size: 12,
         bold: true,
         color: COLOR_ACCENT,
@@ -464,15 +533,21 @@ export async function assembleTripPdf(tripId: string): Promise<Blob> {
   }
   w.hr();
 
+  const sectionCategoryLabel: Record<(typeof SETTLED_CATEGORIES)[number], string> = {
+    BREAKFAST: t.categories.breakfast,
+    TRANSPORT: t.categories.transport,
+    LODGING: t.categories.lodging,
+  };
+
   for (const c of SETTLED_CATEGORIES) {
     const items = byCategory[c];
     if (items.length === 0) continue;
 
     w.ensureSpace(40);
-    w.text(`${CATEGORY_LABEL[c]} 세부내역 (${items.length}건)`, { size: 13, bold: true, gap: 20 });
+    w.text(categoryDetailHeading(locale, sectionCategoryLabel[c], items.length), { size: 13, bold: true, gap: 20 });
 
     for (const r of items) {
-      const statusLabel = verdictDisplayLabel(r.verdictStatus, trip.autoSettlement, r.category, r.transportMode);
+      const statusLabel = verdictDisplayLabel(r.verdictStatus, trip.autoSettlement, r.category, r.transportMode, locale);
       // 자동정산 미사용 출장은 "불인정=빨강"처럼 최종 확정을 암시하는 색을 안 쓴다 - 확인요청은
       // PARTIAL과 같은 주황색으로만 표시한다(REJECTED도 여기 포함).
       const statusColor = !trip.autoSettlement
@@ -484,25 +559,25 @@ export async function assembleTripPdf(tripId: string): Promise<Blob> {
         : r.verdictStatus === "PARTIAL"
         ? COLOR_PARTIAL
         : COLOR_TEXT;
-      const amountLabel = trip.autoSettlement ? "인정금액" : "확인금액";
+      const amountLabel = trip.autoSettlement ? t.pdf.amountLabelAuto : t.pdf.amountLabelManual;
 
       w.ensureSpace(60);
       const ocrSkipped = r.ocrStatus === "PENDING";
       w.text(
-        ocrSkipped ? `[${statusLabel}]` : `[${statusLabel}] ${r.ocrMerchantGuess ?? "상호명 인식 안 됨"}`,
+        ocrSkipped ? `[${statusLabel}]` : `[${statusLabel}] ${r.ocrMerchantGuess ?? t.pdf.merchantNotRecognized}`,
         { size: 11.5, bold: true, color: statusColor, gap: 16 }
       );
       if (ocrSkipped) {
         w.text(
-          `  제출일시: ${formatDateTime(r.createdAt)}` +
+          `  ${t.pdf.submittedAtPrefix}${formatDateTime(r.createdAt, locale)}` +
             (r.verdictAmount !== null ? `   ${amountLabel}: ${r.verdictAmount.toLocaleString("ko-KR")}` : ""),
           { size: 10, color: COLOR_MUTED, gap: 15 }
         );
       } else {
         w.text(
-          `  일시: ${r.ocrDateGuess ? formatDateTime(r.ocrDateGuess) : "인식 안 됨"}   ` +
-            `인식금액: ${r.ocrAmountGuess !== null ? r.ocrAmountGuess.toLocaleString("ko-KR") : "인식 안 됨"}   ` +
-            `${amountLabel}: ${r.verdictAmount !== null ? r.verdictAmount.toLocaleString("ko-KR") : "-"}`,
+          `  ${t.pdf.datetimePrefix}${r.ocrDateGuess ? formatDateTime(r.ocrDateGuess, locale) : t.pdf.notRecognized}   ` +
+            `${t.pdf.recognizedAmountPrefix}${r.ocrAmountGuess !== null ? r.ocrAmountGuess.toLocaleString("ko-KR") : t.pdf.notRecognized}   ` +
+            `${amountLabel}: ${r.verdictAmount !== null ? r.verdictAmount.toLocaleString("ko-KR") : t.pdf.noteDash}`,
           { size: 10, color: COLOR_MUTED, gap: 15 }
         );
       }
@@ -510,7 +585,7 @@ export async function assembleTripPdf(tripId: string): Promise<Blob> {
         w.text(`  ${r.verdictMessage}`, { size: 10, color: statusColor, gap: 15 });
       }
       if (r.verdictRegulationRef) {
-        w.text(`  근거: ${r.verdictRegulationRef}`, { size: 9, color: COLOR_MUTED, gap: 15 });
+        w.text(`  ${t.pdf.regulationRefPrefix}${r.verdictRegulationRef}`, { size: 9, color: COLOR_MUTED, gap: 15 });
       }
       for (const img of r.images) {
         await w.image(img.id);
@@ -523,7 +598,7 @@ export async function assembleTripPdf(tripId: string): Promise<Blob> {
   // 현장사진: 판정 대상이 아닌 순수 증빙이라 상태/금액 없이 사진만 나열한다.
   if (byCategory.FIELD.length > 0) {
     w.ensureSpace(40);
-    w.text(`현장사진 (${byCategory.FIELD.length}건)`, { size: 13, bold: true, gap: 20 });
+    w.text(fieldPhotoHeading(locale, byCategory.FIELD.length), { size: 13, bold: true, gap: 20 });
     for (const [i, r] of byCategory.FIELD.entries()) {
       w.ensureSpace(30);
       // "네이버지도 인증하기"로 만든 항목은 verdictMessage에 "날짜 시간 주소"가 이미 합쳐져
@@ -540,7 +615,7 @@ export async function assembleTripPdf(tripId: string): Promise<Blob> {
   }
 
   w.spacer(10);
-  w.text(FOOTER_DISCLAIMER, { size: 9, color: COLOR_MUTED, gap: 14 });
+  w.text(t.pdf.footerDisclaimer, { size: 9, color: COLOR_MUTED, gap: 14 });
 
   // public/settlement-notice.png 파일을 교체하는 것만으로 넣고 뺄 수 있는 안내/홍보 이미지.
   try {
