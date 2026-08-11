@@ -122,17 +122,6 @@ export default function DateYMDInput({
         />
         <span className="shrink-0 text-neutral-400">.</span>
 
-        <span className="shrink-0 text-neutral-400">.</span>
-        <input
-          type="text"
-          inputMode="numeric"
-          placeholder="DD"
-          value={parts.d}
-          onChange={(e) => set("d", e.target.value, 2)}
-          className={`w-7 shrink-0 ${inputClass}`}
-        />
-        <span className="shrink-0 text-neutral-400">.</span>
-
         <button
           type="button"
           onClick={openPicker}
