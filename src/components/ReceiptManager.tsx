@@ -1,9 +1,9 @@
 "use client";
 
-import { useRef, useState } from "react";
-import { IconCamera, IconPhoto, IconTrash, IconPdf, IconPlus } from "./icons";
+import { useEffect, useRef, useState } from "react";
+import { IconCamera, IconPhoto, IconTrash, IconPdf, IconPlus, IconMap } from "./icons";
 import type { ReceiptItem } from "@/lib/receipt";
-import { verdictDisplayLabel, isManuallyReviewedCategory } from "@/lib/format";
+import { verdictDisplayLabel, isManuallyReviewedCategory, formatDateTime } from "@/lib/format";
 import { FLAT_RATE_TRANSPORT_MODES } from "@/lib/verifyReceipt";
 import { getKstParts } from "@/lib/kst";
 import { createReceipt, addReceiptImage, deleteReceipt, updateReceipt } from "@/lib/localDb";
@@ -12,11 +12,13 @@ import { useReceiptImageUrl } from "@/lib/useObjectUrl";
 import { isHeic } from "@/lib/imageMime";
 import { heicToJpeg } from "@/lib/heicConvertClient";
 import { toThumbnailJpeg } from "@/lib/imageConvertClient";
+import { stampDateTime, getCurrentCoords } from "@/lib/imageStampClient";
+import { fetchLocationSnapshot } from "@/lib/naverMapClient";
 import { renderAllPdfPagesToPng } from "@/lib/pdfToImageClient";
 import { sumAcceptedLodging } from "@/lib/tripSummaryLocal";
 import { tripTotalDays, exceedsLodgingIntranetThreshold } from "@/lib/settlementFormat";
 import TransportRoutePicker, { resolveRouteFare, type RouteSelection } from "./TransportRoutePicker";
-import type { PositionGrade } from "@/lib/localDb";
+import type { PositionGrade, SettlementMode } from "@/lib/localDb";
 
 export type { ReceiptItem };
 
@@ -154,11 +156,21 @@ async function blobToBase64(blob: Blob): Promise<string> {
   return btoa(binary);
 }
 
+/** HEIC/PDF 변환처럼 원인을 구체적으로 짚어 만든 에러 - describeUploadError가 이 메시지를
+ * 뭉개지 않고 그대로 보여주게 하는 표식이다(2026-08-11, 아래 설명 참고). */
+class UploadStepError extends Error {}
+
 /**
  * 업로드 실패 원인을 구분해서 보여준다. 예전에는 형식/크기 문제든 통신 문제든 전부
  * "네트워크 오류가 발생했습니다"로 뭉개져, 사용자가 원인을 모른 채 같은 파일로 재시도했다.
+ *
+ * HEIC/PDF 변환 실패처럼 이미 구체적인 원인 메시지를 만들어 던진 경우(UploadStepError)는
+ * 그 메시지를 그대로 보여준다 - 예전엔 여기서 무조건 이 함수가 다시 일반 메시지로 덮어써서,
+ * "아이폰 사진(HEIC)을 변환하지 못했습니다" 같은 실제 원인이 화면에 뜨지 못하고 "연결 상태를
+ * 확인해 주세요"만 보여 사용자가 원인을 알 수 없었다(2026-08-11 실사용 버그로 발견).
  */
 function describeUploadError(err: unknown): string {
+  if (err instanceof UploadStepError) return err.message;
   const message = err instanceof Error ? err.message : "";
   const lower = message.toLowerCase();
   if (/abort|timeout|시간/.test(lower)) {
@@ -340,7 +352,13 @@ function OcrDetailCard({
   );
 }
 
-type QueuedFile = { id: string; file: File; url: string };
+type QueuedFile = {
+  id: string;
+  file: File;
+  url: string;
+  fromCamera: boolean;
+  capturedAt: number;
+};
 type TripStopInput = { type: StopType; location: string };
 
 export default function ReceiptManager({
@@ -348,6 +366,7 @@ export default function ReceiptManager({
   category,
   transportMode,
   initialReceipts,
+  settlementMode,
   autoSettlement,
   grade,
   tripStartDate,
@@ -361,9 +380,12 @@ export default function ReceiptManager({
   /** 이 컴포넌트의 진짜 데이터 소스는 부모(useReceipts 훅)다 - 로컬 상태로 복제하지 않고
    * 그대로 그린다. 변경 후에는 onChange()로 부모에게 다시 읽어오라고 알린다. */
   initialReceipts: ReceiptItem[];
+  /** 간편모드에서는 TRANSPORT 카테고리의 구간(정액정산) 메뉴를 숨긴다 - 조식/숙박/현장사진은
+   * 이 값과 무관하게 항상 동일하게 동작한다(2026-08-11). 안 넘기면 기존 동작(상세모드)과 같다. */
+  settlementMode?: SettlementMode;
   autoSettlement: boolean;
   /** 고속철도 구간 검색에 필요(직급별 요금) - TRANSPORT 카테고리가 아니면 안 써도 된다. */
-  grade?: PositionGrade;
+  grade?: PositionGrade | null;
   tripStartDate: string;
   tripEndDate: string;
   tripStops: TripStopInput[];
@@ -380,6 +402,17 @@ export default function ReceiptManager({
   // 경유·환승 등으로 한 번에 여러 구간을 등록할 수 있어(2026-08-10, 사용자 요청) 배열로 관리한다 -
   // 제출 시 선택된 구간 수만큼 영수증을 각각 만든다.
   const [routeSelections, setRouteSelections] = useState<RouteSelection[]>([]);
+  // 현장사진에서만 쓰는 "네이버지도 인증하기" - 서버에 키가 설정돼 있을 때만 버튼을 보여준다
+  // (email-status와 같은 패턴, 2026-08-11). 간편/상세모드 공통 기능이라 settlementMode와 무관하다.
+  const [naverMapEnabled, setNaverMapEnabled] = useState(false);
+  const [verifyingLocation, setVerifyingLocation] = useState(false);
+  useEffect(() => {
+    if (category !== "FIELD") return;
+    fetch("/api/naver-map/status")
+      .then((res) => res.json())
+      .then((data) => setNaverMapEnabled(Boolean(data?.enabled)))
+      .catch(() => setNaverMapEnabled(false));
+  }, [category]);
   const galleryInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
 
@@ -398,7 +431,7 @@ export default function ReceiptManager({
   // 정액정산 교통수단(고속철도/승용/버스)은 자유 입력 대신 TRANS 요금표에서 구간을 검색해
   // 고르게 한다(오타로 엉뚱한 구간이 등록되는 것 방지, 2026-08-10). 자동정산 사용 여부와 무관하게
   // 항상 적용된다 - 요금이 정액(테이블 값)이라 AI 판정 대상이 아니기 때문이다.
-  const needsRouteSelection = category === "TRANSPORT" && flatRate;
+  const needsRouteSelection = category === "TRANSPORT" && flatRate && (settlementMode ?? "DETAILED") === "DETAILED";
   // 버스만 사진 선택 전에도 구간 검색창이 바로 보인다 - 고속철도/승용은 사진을 먼저 담아야
   // 나타나는 기존 방식 그대로 둔다(2026-08-10, 사용자 확인 - 버스만 바꿔달라는 요청).
   const showRouteInline = needsRouteSelection && transportMode === "BUS";
@@ -416,29 +449,32 @@ export default function ReceiptManager({
   const needsManualAmount = !autoSettlement && category !== "FIELD" && !flatRate;
   const needsManualDatetime = !autoSettlement && isBreakfast;
 
-  function addFiles(files: FileList | null) {
+  function addFiles(files: FileList | null, fromCamera: boolean) {
     if (!files || files.length === 0) return;
     setError(null);
+    const capturedAt = Date.now();
     const incoming = Array.from(files).map((file) => ({
       id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
       file,
       url: URL.createObjectURL(file),
+      fromCamera,
+      capturedAt,
     }));
     setQueue((prev) => (isBreakfast ? incoming.slice(0, 1) : [...prev, ...incoming]));
     // 조식은 결제 일시를 매번 손으로 입력하기 번거로우니, 사진을 큐에 담는 지금 이 순간(브라우저
     // 현재 시각)으로 미리 채워둔다. 카메라로 막 찍은 경우 사실상 촬영 시각과 같다.
     if (needsManualDatetime && incoming.length > 0) {
-      setManualDatetime(toKstDatetimeLocalValue(Date.now()));
+      setManualDatetime(toKstDatetimeLocalValue(capturedAt));
     }
   }
 
   function onGalleryPicked(e: React.ChangeEvent<HTMLInputElement>) {
-    addFiles(e.target.files);
+    addFiles(e.target.files, false);
     e.target.value = "";
   }
 
   function onCameraPicked(e: React.ChangeEvent<HTMLInputElement>) {
-    addFiles(e.target.files);
+    addFiles(e.target.files, true);
     e.target.value = "";
   }
 
@@ -474,6 +510,10 @@ export default function ReceiptManager({
     setUploading(true);
     setError(null);
     try {
+      // 현장사진을 카메라로 직접 촬영한 경우에만 촬영 시각 스탬프를 새긴다 - 갤러리에서 고른
+      // 기존 사진은 실제 촬영 시각을 알 수 없어 찍지 않는다(2026-08-11).
+      const needsCameraStamp = (q: QueuedFile) => category === "FIELD" && q.fromCamera;
+
       // 1) 각 파일을 이미지 Blob 1개 이상으로 정규화한다 - HEIC는 JPEG로, PDF는 페이지별 PNG로
       // 바꾼다(다중 페이지면 페이지 수만큼 이미지가 생긴다). 나머지는 그대로 쓴다.
       const converted: Blob[] = [];
@@ -486,17 +526,21 @@ export default function ReceiptManager({
         }
         if (contentType === "application/pdf") {
           const bytes = new Uint8Array(await q.file.arrayBuffer());
-          const pages = await renderAllPdfPagesToPng(bytes).catch(() => {
-            throw new Error("PDF 파일을 이미지로 변환하지 못했습니다. 파일이 손상되었거나 지원되지 않는 형식일 수 있습니다.");
+          const pages = await renderAllPdfPagesToPng(bytes).catch((err) => {
+            console.error("PDF 변환 실패:", err);
+            throw new UploadStepError("PDF 파일을 이미지로 변환하지 못했습니다. 파일이 손상되었거나 지원되지 않는 형식일 수 있습니다.");
           });
           converted.push(...pages);
         } else if (isHeic(contentType, q.file.name)) {
-          const jpeg = await heicToJpeg(q.file).catch(() => {
-            throw new Error("아이폰 사진(HEIC)을 변환하지 못했습니다. 파일이 손상되었거나 지원되지 않는 형식일 수 있습니다.");
+          const jpeg = await heicToJpeg(q.file).catch((err) => {
+            console.error("HEIC 변환 실패:", err);
+            throw new UploadStepError("아이폰 사진(HEIC)을 변환하지 못했습니다. 파일이 손상되었거나 지원되지 않는 형식일 수 있습니다.");
           });
-          converted.push(jpeg);
+          converted.push(needsCameraStamp(q) ? await stampDateTime(jpeg, new Date(q.capturedAt)) : jpeg);
         } else {
-          converted.push(q.file);
+          converted.push(
+            needsCameraStamp(q) ? await stampDateTime(q.file, new Date(q.capturedAt)) : q.file
+          );
         }
       }
 
@@ -702,6 +746,55 @@ export default function ReceiptManager({
     }
   }
 
+  /**
+   * "네이버지도 인증하기" - 현재 위치의 지도 스냅샷을 받아 여느 현장사진과 동일한 방식으로
+   * 저장한다(카메라로 찍은 사진과 같은 saveReceipt 경로를 안 쓰는 건, 이 흐름엔 큐/파일 변환
+   * 단계가 아예 없어 그대로 재사용하기보다 직접 만드는 편이 더 단순해서다).
+   */
+  async function verifyLocation() {
+    setVerifyingLocation(true);
+    setError(null);
+    try {
+      const coords = await getCurrentCoords();
+      if (!coords) {
+        setError("위치를 확인할 수 없습니다. 위치 권한을 허용했는지 확인한 뒤 다시 시도해 주세요.");
+        return;
+      }
+      const { address, imageBlob } = await fetchLocationSnapshot(coords.lat, coords.lng);
+      // "날짜 시간 주소" 순서로 한 줄에 합쳐 보여준다(2026-08-11, 사용자 요청) - 화면(그리드
+      // 캡션/상세보기)과 PDF가 이 한 값을 그대로 가져다 쓰므로 별도로 맞출 필요가 없다.
+      const verifiedAt = formatDateTime(new Date());
+      const verdictMessage = address ? `${verifiedAt} ${address}` : `${verifiedAt} 네이버지도 위치 인증`;
+      const created = await createReceipt({
+        tripId,
+        category: "FIELD",
+        transportMode: null,
+        ocrStatus: "PENDING",
+        verdictStatus: "APPROVED",
+        verdictAmount: null,
+        verdictMessage,
+        verdictFailedCheck: null,
+        verdictRegulationRef: null,
+      });
+      const fullBytes = await imageBlob.arrayBuffer();
+      const thumbBlob = await toThumbnailJpeg(imageBlob).catch(() => null);
+      const thumbBytes = thumbBlob ? await thumbBlob.arrayBuffer() : null;
+      await addReceiptImage({
+        receiptId: created.id,
+        order: 0,
+        mimeType: imageBlob.type || "image/jpeg",
+        fullBytes,
+        thumbBytes,
+      });
+      onChange?.();
+    } catch (err) {
+      console.error("네이버지도 인증 실패:", err);
+      setError(err instanceof Error ? err.message : "위치 인증에 실패했습니다. 잠시 후 다시 시도해 주세요.");
+    } finally {
+      setVerifyingLocation(false);
+    }
+  }
+
   async function removeReceipt(id: string) {
     if (selectedId === id) setSelectedId(null);
     try {
@@ -715,7 +808,9 @@ export default function ReceiptManager({
   const selectedReceipt = receipts.find((r) => r.id === selectedId) ?? null;
 
   const hint = needsRouteSelection
-    ? "정액 지급 대상입니다. 인트라넷 간편입력을 위해 구간을 입력합니다.(선택)"
+    ? "정액 지급 대상입니다. 인트라넷 간편입력을 위해 구간을 선택해주세요."
+    : flatRate
+    ? "정액정산 대상입니다. 별도 금액 확인 없이 사진 첨부만으로 인정됩니다."
     : !autoSettlement
     ? category === "FIELD"
       ? "증빙용 사진입니다. 첨부하면 제출 처리됩니다."
@@ -782,6 +877,19 @@ export default function ReceiptManager({
               출장 첫날 조식비를 신청하는 경우, 사진촬영 또는 증빙사진을 올려주세요
             </p>
           )}
+          {category === "FIELD" && naverMapEnabled && (
+            <button
+              type="button"
+              onClick={verifyLocation}
+              disabled={verifyingLocation}
+              // 네이버 브랜드 컬러(#03C75A)로 눈에 띄게 - 다른 두 버튼(갤러리/카메라)과 구분되는
+              // 별개 서비스(외부 API 연동)라는 걸 색으로도 드러낸다(2026-08-11).
+              className="shadow-glow mt-3 flex w-full items-center justify-center gap-2 rounded-[20px] bg-[#03C75A] py-4 text-[15px] font-semibold text-white active:scale-[0.98] disabled:opacity-50"
+            >
+              <IconMap />
+              {verifyingLocation ? "위치 확인 중..." : "네이버지도 인증하기"}
+            </button>
+          )}
         </div>
       ) : (
         <div className="shadow-soft rounded-[24px] border border-black/5 bg-white/80 p-4 dark:border-white/10 dark:bg-white/[0.04]">
@@ -792,6 +900,13 @@ export default function ReceiptManager({
                   <div className="flex h-full w-full flex-col items-center justify-center gap-1 px-1">
                     <IconPdf className="size-6 text-neutral-400" />
                     <span className="max-w-full truncate text-[9px] text-neutral-500">{q.file.name}</span>
+                  </div>
+                ) : isHeic(resolveContentType(q.file), q.file.name) ? (
+                  // 대부분의 브라우저(사파리 제외)는 <img>로 HEIC를 못 그린다 - 깨진 이미지
+                  // 대신 등록 시 변환될 거라는 걸 알 수 있게 아이콘으로 대체한다(2026-08-11).
+                  <div className="flex h-full w-full flex-col items-center justify-center gap-1 px-1">
+                    <IconPhoto className="size-6 text-neutral-400" />
+                    <span className="max-w-full truncate text-[9px] text-neutral-500">HEIC</span>
                   </div>
                 ) : (
                   // eslint-disable-next-line @next/next/no-img-element
@@ -967,10 +1082,20 @@ export default function ReceiptManager({
                 >
                   {verdictDisplayLabel(r.verdictStatus, autoSettlement, r.category, r.transportMode)}
                 </span>
-                {r.verdictAmount !== null && (
+                {r.verdictAmount !== null ? (
                   <span className="absolute inset-x-0 bottom-0 truncate bg-black/55 px-2 py-1 text-[11px] font-medium text-white">
                     {r.verdictAmount.toLocaleString("ko-KR")}원
                   </span>
+                ) : (
+                  // 현장사진 중 "네이버지도 인증하기"로 만든 항목은 amount가 없는 대신 날짜/시간/
+                  // 주소가 verdictMessage에 들어있다 - 그리드에서도 바로 보이게 캡션으로 보여준다
+                  // (2026-08-11, 탭해서 상세보기까지 들어가야만 보이던 걸 개선).
+                  r.category === "FIELD" &&
+                  r.verdictMessage && (
+                    <span className="absolute inset-x-0 bottom-0 truncate bg-black/55 px-2 py-1 text-[10px] font-medium text-white">
+                      {r.verdictMessage}
+                    </span>
+                  )
                 )}
                 <span
                   role="button"
