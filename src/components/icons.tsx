@@ -169,6 +169,19 @@ export function IconMail({ className = "size-4" }: { className?: string }) {
   );
 }
 
+export function IconMap({ className = "size-4" }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className} strokeWidth={1.9} stroke="currentColor">
+      <path
+        d="M12 21s7-6.2 7-11.5A7 7 0 0 0 5 9.5C5 14.8 12 21 12 21Z"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <circle cx="12" cy="9.5" r="2.3" />
+    </svg>
+  );
+}
+
 export function IconDownload({ className = "size-4" }: { className?: string }) {
   return (
     <svg viewBox="0 0 24 24" fill="none" className={className} strokeWidth={1.9} stroke="currentColor">
