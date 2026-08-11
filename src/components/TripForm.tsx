@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { IconPlus, IconTrash } from "./icons";
 import DateYMDInput from "./DateYMDInput";
-import { createTrip, updateTrip, type PositionGrade } from "@/lib/localDb";
+import { createTrip, updateTrip, type PositionGrade, type SettlementMode } from "@/lib/localDb";
 import { POSITION_GRADE_LABEL } from "@/lib/transportFares";
 
 type Stop = {
@@ -60,6 +60,9 @@ export default function TripForm({
   const [startDate, setStartDate] = useState(initialStartDate ?? "");
   const [endDate, setEndDate] = useState(initialEndDate ?? "");
   const [stops, setStops] = useState<Stop[]>(() => toStops(initialStops));
+  // 상세모드가 기존 시스템 기본값이다 - 간편모드는 조식/교통/숙박/현장사진 증빙만 모아
+  // 발송하는 축소판으로 새로 추가된 옵션이다(2026-08-11).
+  const [mode, setMode] = useState<SettlementMode>("SIMPLE");
   // 기본값은 비활성화(수동입력) - 무료 OCR 모델의 인식 오류/오탐이 실사용에서 반복 확인돼,
   // 자동정산은 사용자가 명시적으로 켜기로 선택한 경우에만 쓰도록 한다. (2026-08-07)
   const [autoSettlement, setAutoSettlement] = useState(false);
@@ -115,7 +118,7 @@ export default function TripForm({
       setError("모든 경로 항목에 장소를 입력해 주세요.");
       return;
     }
-    if (!isEdit && !grade) {
+    if (!isEdit && mode === "DETAILED" && !grade) {
       setError("책임급 / 선임급 이하 중 하나를 선택해 주세요.");
       return;
     }
@@ -128,7 +131,14 @@ export default function TripForm({
         setSubmitting(false);
         onSaved?.();
       } else {
-        const trip = await createTrip({ startDate, endDate, stops: stopsInput, autoSettlement, grade: grade! });
+        const trip = await createTrip({
+          startDate,
+          endDate,
+          stops: stopsInput,
+          settlementMode: mode,
+          autoSettlement: mode === "DETAILED" && autoSettlement,
+          grade: mode === "DETAILED" ? grade : null,
+        });
         router.push(`/trip/${trip.id}`);
       }
     } catch {
@@ -172,57 +182,103 @@ export default function TripForm({
       </div>
 
       {!isEdit && (
-        <div className="mt-4 space-y-3 rounded-2xl border border-black/5 bg-neutral-50 p-3 dark:border-white/10 dark:bg-white/5">
-          <div>
-            <div className="flex items-center justify-between gap-3">
-              <p className="text-[14px] font-semibold text-neutral-900 dark:text-neutral-100">
-                자동정산 (AI 판정)
-              </p>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={autoSettlement}
-                aria-label="자동정산 사용 여부"
-                onClick={() => setAutoSettlement((v) => !v)}
-                className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors ${
-                  autoSettlement ? "bg-brand" : "bg-neutral-300 dark:bg-white/20"
+        <div className="mt-4 rounded-2xl border border-black/5 bg-neutral-50 p-3 dark:border-white/10 dark:bg-white/5">
+          <div className="flex items-center justify-between gap-2">
+            <button
+              type="button"
+              onClick={() => setMode("SIMPLE")}
+              className={`text-[14px] font-semibold transition ${
+                mode === "SIMPLE" ? "text-brand dark:text-brand-light" : "text-neutral-400"
+              }`}
+            >
+              간편모드
+            </button>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={mode === "DETAILED"}
+              aria-label="간편모드 / 상세모드 전환"
+              onClick={() => setMode((m) => (m === "SIMPLE" ? "DETAILED" : "SIMPLE"))}
+              className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors ${
+                mode === "DETAILED" ? "bg-brand" : "bg-neutral-300 dark:bg-white/20"
+              }`}
+            >
+              <span
+                className={`inline-block size-5 transform rounded-full bg-white shadow transition-transform ${
+                  mode === "DETAILED" ? "translate-x-6" : "translate-x-1"
                 }`}
-              >
-                <span
-                  className={`inline-block size-5 transform rounded-full bg-white shadow transition-transform ${
-                    autoSettlement ? "translate-x-6" : "translate-x-1"
-                  }`}
-                />
-              </button>
-            </div>
-            <p className="mt-1 text-[12px] text-neutral-400">
-              {autoSettlement
-                ? "외부 LLM을 이용하여 AI가 인정/불인정을 판정합니다. 민감정보가 노출되지 않도록 유의해주세요"
-                : "AI 판정 없이 증빙서류만 제출합니다."}
-            </p>
+              />
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode("DETAILED")}
+              className={`text-[14px] font-semibold transition ${
+                mode === "DETAILED" ? "text-brand dark:text-brand-light" : "text-neutral-400"
+              }`}
+            >
+              상세모드
+            </button>
           </div>
+          <p className="mt-2 text-[12px] text-neutral-400">
+            {mode === "SIMPLE"
+              ? "조식, 교통, 숙박영수증, 현장사진을 한 곳에 모아 출장종료 후 이메일로 발송합니다"
+              : "AI 자동정산(선택사항)과 인트라넷과 동일한 정산금액을 산출하여 출장종료 후 발송되는 레포트 내역을 그대로 복사하여 복명할 수 있습니다"}
+          </p>
 
-          <div className="flex items-center justify-between gap-3 border-t border-black/5 pt-3 dark:border-white/10">
-            <p className="text-[14px] font-semibold text-neutral-900 dark:text-neutral-100">직급</p>
-            <div className="flex shrink-0 rounded-full bg-neutral-200/70 p-0.5 dark:bg-white/10">
-              {(Object.keys(POSITION_GRADE_LABEL) as PositionGrade[]).map((g) => (
-                <button
-                  key={g}
-                  type="button"
-                  onClick={() => setGrade(g)}
-                  className={`rounded-full px-3 py-1.5 text-[13px] font-medium transition ${
-                    grade === g
-                      ? "bg-white text-brand shadow-sm dark:bg-white/90"
-                      : "text-neutral-500 dark:text-neutral-400"
-                  }`}
-                >
-                  {POSITION_GRADE_LABEL[g]}
-                </button>
-              ))}
+          {mode === "DETAILED" && (
+            <div className="mt-3 space-y-3 border-t border-black/5 pt-3 dark:border-white/10">
+              <div>
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-[14px] font-semibold text-neutral-900 dark:text-neutral-100">
+                    자동정산 (AI 판정)
+                  </p>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={autoSettlement}
+                    aria-label="자동정산 사용 여부"
+                    onClick={() => setAutoSettlement((v) => !v)}
+                    className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors ${
+                      autoSettlement ? "bg-brand" : "bg-neutral-300 dark:bg-white/20"
+                    }`}
+                  >
+                    <span
+                      className={`inline-block size-5 transform rounded-full bg-white shadow transition-transform ${
+                        autoSettlement ? "translate-x-6" : "translate-x-1"
+                      }`}
+                    />
+                  </button>
+                </div>
+                <p className="mt-1 text-[12px] text-neutral-400">
+                  {autoSettlement
+                    ? "외부 LLM을 이용하여 AI가 인정/불인정을 판정합니다. 민감정보가 노출되지 않도록 유의해주세요"
+                    : "AI 판정 없이 증빙서류만 제출합니다."}
+                </p>
+              </div>
+
+              <div className="flex items-center justify-between gap-3 border-t border-black/5 pt-3 dark:border-white/10">
+                <p className="text-[14px] font-semibold text-neutral-900 dark:text-neutral-100">직급</p>
+                <div className="flex shrink-0 rounded-full bg-neutral-200/70 p-0.5 dark:bg-white/10">
+                  {(Object.keys(POSITION_GRADE_LABEL) as PositionGrade[]).map((g) => (
+                    <button
+                      key={g}
+                      type="button"
+                      onClick={() => setGrade(g)}
+                      className={`rounded-full px-3 py-1.5 text-[13px] font-medium transition ${
+                        grade === g
+                          ? "bg-white text-brand shadow-sm dark:bg-white/90"
+                          : "text-neutral-500 dark:text-neutral-400"
+                      }`}
+                    >
+                      {POSITION_GRADE_LABEL[g]}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <p className="text-[11px] text-neutral-400">출장 등록 후에는 둘 다 바꿀 수 없어요.</p>
             </div>
-          </div>
-
-          <p className="text-[11px] text-neutral-400">출장 등록 후에는 둘 다 바꿀 수 없어요.</p>
+          )}
         </div>
       )}
 
