@@ -35,12 +35,12 @@ export default function PdfDownloadButton({ tripId, label }: { tripId: string; l
   }
 
   return (
-    <div>
+    <div className="shrink-0">
       <button
         type="button"
         onClick={handleClick}
         disabled={loading}
-        className="mt-4 inline-flex items-center gap-2 rounded-full bg-white/15 px-4 py-2.5 text-[14px] font-semibold text-white backdrop-blur transition hover:bg-white/25 disabled:opacity-50"
+        className="inline-flex items-center gap-2 rounded-full bg-white/15 px-4 py-2.5 text-[14px] font-semibold text-white backdrop-blur transition hover:bg-white/25 disabled:opacity-50"
       >
         <IconDownload className="size-5" />
         {loading ? "PDF 생성 중..." : label}
