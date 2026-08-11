@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import CategoryCard from "@/components/CategoryCard";
 import EmailSendButton from "@/components/EmailSendButton";
@@ -9,7 +10,6 @@ import TripRouteSection from "@/components/TripRouteSection";
 import TripStatusButton from "@/components/TripStatusButton";
 import TripDeleteButton from "@/components/TripDeleteButton";
 import LocalDataBoundary from "@/components/LocalDataBoundary";
-import { isEmailConfigured } from "@/lib/emailConfig";
 import { IconBreakfast, IconTransport, IconLodging, IconFieldPhoto, IconChevronLeft } from "@/components/icons";
 import { useTrip } from "@/lib/useLocalTrip";
 import { useReceipts } from "@/lib/useLocalReceipts";
@@ -21,6 +21,16 @@ export default function TripHubPage() {
   const { status: receiptsStatus, receipts } = useReceipts(id);
   const { byCategory, sumByCategory } = summarizeByCategory(receipts);
   const isCompleted = trip?.status === "COMPLETED";
+  // isEmailConfigured()는 process.env.SMTP_*를 읽는데 이 값은 서버에서만 채워지므로, 이 클라이언트
+  // 컴포넌트에서 직접 부르면 항상 false가 나온다 - /api/email-status로 서버 판정을 받아온다
+  // (2026-08-10, "준비 중" 배너가 SMTP 설정과 무관하게 항상 뜨던 버그 수정).
+  const [emailEnabled, setEmailEnabled] = useState(false);
+  useEffect(() => {
+    fetch("/api/email-status")
+      .then((res) => res.json())
+      .then((data) => setEmailEnabled(Boolean(data?.enabled)))
+      .catch(() => setEmailEnabled(false));
+  }, []);
 
   return (
     <LocalDataBoundary
@@ -70,7 +80,7 @@ export default function TripHubPage() {
                 tripId={id}
                 label={trip.autoSettlement ? "정산 결과 PDF 다운로드" : "제출 서류 PDF 다운로드"}
               />
-              <EmailSendButton tripId={id} trip={trip} receipts={receipts} enabled={isEmailConfigured()} />
+              <EmailSendButton tripId={id} trip={trip} receipts={receipts} enabled={emailEnabled} />
             </section>
           ) : null}
 
