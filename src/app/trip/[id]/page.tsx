@@ -76,11 +76,13 @@ export default function TripHubPage() {
                   </p>
                 </>
               )}
-              <PdfDownloadButton
-                tripId={id}
-                label={trip.autoSettlement ? "정산 결과 PDF 다운로드" : "제출 서류 PDF 다운로드"}
-              />
-              <EmailSendButton tripId={id} trip={trip} receipts={receipts} enabled={emailEnabled} />
+              <div className="mt-4 flex flex-wrap items-center gap-2">
+                <PdfDownloadButton
+                  tripId={id}
+                  label={trip.autoSettlement ? "정산 결과 PDF 다운로드" : "제출 서류 PDF 다운로드"}
+                />
+                <EmailSendButton tripId={id} trip={trip} receipts={receipts} enabled={emailEnabled} />
+              </div>
             </section>
           ) : null}
 
