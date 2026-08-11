@@ -6,7 +6,7 @@ import { IconMail } from "./icons";
 import { assembleTripPdf } from "@/lib/pdfAssembleClient";
 import { getRememberedEmail, setRememberedEmail } from "@/lib/localSettings";
 import { summarizeByCategory } from "@/lib/tripSummaryLocal";
-import { buildTransportCell, countAndAmount } from "@/lib/settlementFormat";
+import { buildTransportCell, countAndAmount, amountOrDash, countOrDash } from "@/lib/settlementFormat";
 import { CATEGORY_LABEL, formatDate } from "@/lib/format";
 import type { LocalTrip, LocalReceipt } from "@/lib/localDb";
 
@@ -51,24 +51,45 @@ export default function EmailSendButton({
       });
 
       const { byCategory, sumByCategory, totalAmount } = summarizeByCategory(receipts);
-      // PDF의 "항목별 합계" 표와 같은 표시 규칙(countAndAmount/buildTransportCell)을 그대로 써서,
-      // 첨부 PDF와 메일 본문에 서로 다른 값이 찍히는 걸 막는다.
+      const isSimple = trip.settlementMode === "SIMPLE";
       const subject = `[정총무]국내여비 증빙서류 내역서 (${formatDate(trip.startDate)} ~ ${formatDate(trip.endDate)})`;
-      const bodyLines = [
-        trip.autoSettlement
-          ? "출장 실비정산 내역을 첨부드립니다."
-          : "자동정산을 사용하지 않은 출장입니다. 제출된 증빙 서류를 첨부드리니 확인 후 정산 금액을 확정해 주세요.",
-        "",
-        trip.autoSettlement
-          ? `${CATEGORY_LABEL.BREAKFAST}   ${byCategory.BREAKFAST.length}건   ${sumByCategory.BREAKFAST.toLocaleString("ko-KR")}원`
-          : `${CATEGORY_LABEL.BREAKFAST}   ${countAndAmount(byCategory.BREAKFAST.length, sumByCategory.BREAKFAST)}`,
-        `${CATEGORY_LABEL.TRANSPORT}   ${buildTransportCell(byCategory.TRANSPORT, trip.autoSettlement)}`,
-        trip.autoSettlement
-          ? `${CATEGORY_LABEL.LODGING}   ${byCategory.LODGING.length}건   ${sumByCategory.LODGING.toLocaleString("ko-KR")}원`
-          : `${CATEGORY_LABEL.LODGING}   ${countAndAmount(byCategory.LODGING.length, sumByCategory.LODGING)}`,
-        `현장사진   ${byCategory.FIELD.length}건`,
-        ...(trip.autoSettlement ? [`합계   ${totalAmount.toLocaleString("ko-KR")}원`] : []),
-      ];
+
+      let bodyLines: string[];
+      if (isSimple) {
+        // 간편모드는 PDF의 "항목별 합계"(simpleSummaryTable, pdfAssembleClient.ts)와 완전히
+        // 같은 데이터(sumByCategory - 규정 검토를 거친 확인금액 합계, 조식도 상세모드의 일수
+        // 산식 없이 그대로)를 써서, 첨부 PDF와 메일 본문 숫자가 어긋나지 않게 한다(2026-08-11).
+        const summaryLine = (label: string, count: number, amount: number) => {
+          const amt = amountOrDash(amount);
+          return `${label}   ${countOrDash(count, "건")}   ${amt === "-" ? "-" : `${amt}원`}`;
+        };
+        bodyLines = [
+          "조식, 교통, 숙박영수증, 현장사진 증빙 서류를 첨부드립니다.",
+          "",
+          summaryLine(CATEGORY_LABEL.BREAKFAST, byCategory.BREAKFAST.length, sumByCategory.BREAKFAST),
+          summaryLine(CATEGORY_LABEL.TRANSPORT, byCategory.TRANSPORT.length, sumByCategory.TRANSPORT),
+          summaryLine(CATEGORY_LABEL.LODGING, byCategory.LODGING.length, sumByCategory.LODGING),
+          `현장사진   ${countOrDash(byCategory.FIELD.length, "건")}`,
+        ];
+      } else {
+        // PDF의 "항목별 합계" 표와 같은 표시 규칙(countAndAmount/buildTransportCell)을 그대로 써서,
+        // 첨부 PDF와 메일 본문에 서로 다른 값이 찍히는 걸 막는다.
+        bodyLines = [
+          trip.autoSettlement
+            ? "출장 실비정산 내역을 첨부드립니다."
+            : "자동정산을 사용하지 않은 출장입니다. 제출된 증빙 서류를 첨부드리니 확인 후 정산 금액을 확정해 주세요.",
+          "",
+          trip.autoSettlement
+            ? `${CATEGORY_LABEL.BREAKFAST}   ${byCategory.BREAKFAST.length}건   ${sumByCategory.BREAKFAST.toLocaleString("ko-KR")}원`
+            : `${CATEGORY_LABEL.BREAKFAST}   ${countAndAmount(byCategory.BREAKFAST.length, sumByCategory.BREAKFAST)}`,
+          `${CATEGORY_LABEL.TRANSPORT}   ${buildTransportCell(byCategory.TRANSPORT, trip.autoSettlement)}`,
+          trip.autoSettlement
+            ? `${CATEGORY_LABEL.LODGING}   ${byCategory.LODGING.length}건   ${sumByCategory.LODGING.toLocaleString("ko-KR")}원`
+            : `${CATEGORY_LABEL.LODGING}   ${countAndAmount(byCategory.LODGING.length, sumByCategory.LODGING)}`,
+          `현장사진   ${byCategory.FIELD.length}건`,
+          ...(trip.autoSettlement ? [`합계   ${totalAmount.toLocaleString("ko-KR")}원`] : []),
+        ];
+      }
 
       const res = await fetch("/api/send-settlement", {
         method: "POST",
