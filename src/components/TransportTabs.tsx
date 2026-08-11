@@ -4,12 +4,13 @@ import { useMemo, useState } from "react";
 import ReceiptManager from "./ReceiptManager";
 import { TRANSPORT_MODE_LABEL } from "@/lib/format";
 import { useReceipts } from "@/lib/useLocalReceipts";
-import type { TransportMode, LocalStop, PositionGrade } from "@/lib/localDb";
+import type { TransportMode, LocalStop, PositionGrade, SettlementMode } from "@/lib/localDb";
 
 const MODES: TransportMode[] = ["SHIP", "AIR", "RAIL", "PRIVATE_CAR", "BUS"];
 
 export default function TransportTabs({
   tripId,
+  settlementMode,
   autoSettlement,
   grade,
   tripStartDate,
@@ -17,8 +18,9 @@ export default function TransportTabs({
   tripStops,
 }: {
   tripId: string;
+  settlementMode: SettlementMode;
   autoSettlement: boolean;
-  grade: PositionGrade;
+  grade: PositionGrade | null;
   tripStartDate: string;
   tripEndDate: string;
   tripStops: LocalStop[];
@@ -53,6 +55,7 @@ export default function TransportTabs({
         category="TRANSPORT"
         transportMode={mode}
         initialReceipts={receiptsForMode}
+        settlementMode={settlementMode}
         autoSettlement={autoSettlement}
         grade={grade}
         tripStartDate={tripStartDate}
