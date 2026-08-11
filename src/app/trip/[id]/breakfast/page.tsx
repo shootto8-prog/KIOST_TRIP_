@@ -22,7 +22,15 @@ export default function BreakfastPage() {
       {trip && (
         <main className="space-y-6">
           <CategoryPageHeader tripId={id} icon={<IconBreakfast className="size-12" />} title="조식" />
-          <MealDeductionStepper tripId={id} value={trip.mealDeductionCount} onChanged={refreshTrip} />
+          {trip.settlementMode === "DETAILED" && (
+            <MealDeductionStepper
+              tripId={id}
+              value={trip.mealDeductionCount}
+              tripStartDate={trip.startDate}
+              tripEndDate={trip.endDate}
+              onChanged={refreshTrip}
+            />
+          )}
           <ReceiptManager
             tripId={id}
             category="BREAKFAST"
