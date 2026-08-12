@@ -25,7 +25,8 @@ const en: Dictionary = {
       "This system is for reference only. The responsible department may revise or reject submissions upon review.",
   },
   home: {
-    title: "KIOST Domestic Travel Service",
+    titleAccent: "Domestic Travel",
+    titleRest: " Service",
     subtitle: "Register your trip and manage breakfast, transport, lodging, and field photos.",
     activeTripsHeading: "Active Trips",
     completedTripsHeading: "Completed Trips",

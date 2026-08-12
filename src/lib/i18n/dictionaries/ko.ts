@@ -24,7 +24,8 @@ const ko = {
     disclaimer: "해당 시스템은 참고용이며, 담당부서 검토시 수정,반려될 수 있습니다",
   },
   home: {
-    title: "KIOST 국내여비 간편서비스",
+    titleAccent: "국내여비",
+    titleRest: " 간편서비스",
     subtitle: "출장정보를 등록하고 조식·교통·숙박·현장사진을 관리하세요.",
     activeTripsHeading: "진행중인 출장",
     completedTripsHeading: "종료된 출장",
