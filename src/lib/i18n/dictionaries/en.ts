@@ -17,7 +17,7 @@ const en: Dictionary = {
     toKo: "언어 전환 (한국어)",
   },
   layout: {
-    footerTitle: "KIOST Domestic Travel Service 2026",
+    footerTitle: "Trip Expense Assistant 1.0 (KIOST Domestic Travel Service) 2026",
     contactLabel: "Contact: KIOST General Affairs & Welfare Office",
     phoneAria: "Phone inquiry 051-664-9090",
     emailAria: "Email inquiry young@kiost.ac.kr",

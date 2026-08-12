@@ -17,7 +17,7 @@ const ko = {
     toKo: "Switch language (한국어)",
   },
   layout: {
-    footerTitle: "KIOST 국내여비 간편서비스 2026",
+    footerTitle: "정총무 1.0 (KIOST 국내여비 간편서비스) 2026",
     contactLabel: "문의 : KIOST 총무복지실",
     phoneAria: "전화 문의 051-664-9090",
     emailAria: "이메일 문의 young@kiost.ac.kr",
