@@ -17,14 +17,14 @@ const ko = {
     toKo: "Switch language (한국어)",
   },
   layout: {
-    footerTitle: "정총무 1.0 (KIOST 국내여비 간편서비스) 2026",
+    footerTitle: "KIOST 국내여비 간편서비스 2026",
     contactLabel: "문의 : KIOST 총무복지실",
     phoneAria: "전화 문의 051-664-9090",
     emailAria: "이메일 문의 young@kiost.ac.kr",
     disclaimer: "해당 시스템은 참고용이며, 담당부서 검토시 수정,반려될 수 있습니다",
   },
   home: {
-    titlePrefix: "정총무",
+    title: "KIOST 국내여비 간편서비스",
     subtitle: "출장정보를 등록하고 조식·교통·숙박·현장사진을 관리하세요.",
     activeTripsHeading: "진행중인 출장",
     completedTripsHeading: "종료된 출장",

@@ -20,8 +20,7 @@ export default function HomePage() {
       <header className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <h1 className="text-[28px] font-bold tracking-tight text-neutral-900 dark:text-neutral-100">
-            {t.home.titlePrefix}
-            <span className="text-brand">1.0</span>
+            {t.home.title}
           </h1>
           <p className="mt-1 text-[14px] text-neutral-500">{t.home.subtitle}</p>
         </div>

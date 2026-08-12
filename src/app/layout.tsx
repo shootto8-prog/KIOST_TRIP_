@@ -4,7 +4,7 @@ import { LanguageProvider } from "@/lib/i18n/LanguageProvider";
 import LayoutFooter from "@/components/LayoutFooter";
 
 export const metadata: Metadata = {
-  title: "정총무1.0(KIOST 국내여비 간편서비스)",
+  title: "KIOST 국내여비 간편서비스",
   description: "출장 실비(조식/교통/숙박/현장사진) 정산 도우미",
 };
 
